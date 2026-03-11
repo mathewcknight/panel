@@ -1,0 +1,1603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MEGAPANEL — ARENA Panel Scheduler</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://unpkg.com/docx@7.8.2/build/index.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #FFFFFF; color: #1A1A1A; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* HEADER */
+  #header { background: #FFFFFF; border-bottom: 2px solid #00A89D; padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; min-height: 60px; }
+  #header-left { display: flex; flex-direction: column; }
+  #app-title { font-size: 1.6rem; font-weight: 900; color: #00A89D; letter-spacing: 2px; line-height: 1; }
+  #folder-path { font-size: 0.72rem; color: #666; margin-top: 3px; }
+  #header-right { display: flex; align-items: center; gap: 14px; }
+  #last-saved { font-size: 0.75rem; color: #888; }
+  #btn-new-panel { background: #005BAA; color: #fff; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: background 0.2s; }
+  #btn-new-panel:hover { background: #004a8f; }
+
+  /* MAIN LAYOUT */
+  #main { display: flex; flex: 1; overflow: hidden; }
+
+  /* SIDEBAR */
+  #sidebar { width: 200px; background: #f7f7f7; border-right: 1px solid #ddd; display: flex; flex-direction: column; padding: 16px 0; flex-shrink: 0; overflow-y: auto; }
+  .sidebar-tab { position: relative; display: flex; align-items: center; gap: 8px; padding: 11px 18px; cursor: pointer; font-size: 0.88rem; font-weight: 500; color: #1A1A1A; border-left: 3px solid transparent; transition: background 0.15s, border-color 0.15s; user-select: none; }
+  .sidebar-tab:hover { background: #eef8f8; }
+  .sidebar-tab.active { border-left-color: #00A89D; background: #e6f7f6; color: #00A89D; font-weight: 700; }
+  .tab-arrow { text-align: center; color: #bbb; font-size: 0.8rem; padding: 2px 0; }
+  .orange-dot { width: 8px; height: 8px; border-radius: 50%; background: #F47920; display: inline-block; flex-shrink: 0; }
+
+  /* CONTENT */
+  #content { flex: 1; overflow-y: auto; padding: 24px 28px; padding-bottom: 60px; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* SECTION HEADINGS */
+  h2 { color: #005BAA; font-size: 1.2rem; margin-bottom: 16px; }
+  h3 { color: #005BAA; font-size: 1rem; margin-bottom: 10px; margin-top: 18px; }
+  label { font-size: 0.85rem; font-weight: 600; color: #333; display: block; margin-bottom: 4px; }
+
+  /* FORM ELEMENTS */
+  input[type="date"], input[type="time"], input[type="text"], input[type="number"], select, textarea {
+    border: 1px solid #ccc; border-radius: 4px; padding: 7px 10px; font-size: 0.88rem; width: 100%; outline: none; transition: border-color 0.2s;
+  }
+  input[type="date"]:focus, input[type="time"]:focus, input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:focus { border-color: #00A89D; }
+  .form-row { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 14px; flex-wrap: wrap; }
+  .form-group { display: flex; flex-direction: column; gap: 4px; }
+  .form-group.w200 { width: 200px; }
+  .form-group.w150 { width: 150px; }
+  .form-group.w120 { width: 120px; }
+  .form-group.flex1 { flex: 1; min-width: 140px; }
+
+  /* BUTTONS */
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: background 0.2s; }
+  .btn-teal { background: #00A89D; color: #fff; }
+  .btn-teal:hover { background: #008f85; }
+  .btn-blue { background: #005BAA; color: #fff; }
+  .btn-blue:hover { background: #004a8f; }
+  .btn-green { background: #5CB85C; color: #fff; }
+  .btn-green:hover { background: #4cae4c; }
+  .btn-orange { background: #F47920; color: #fff; }
+  .btn-orange:hover { background: #d96a18; }
+  .btn-danger { background: #d9534f; color: #fff; }
+  .btn-danger:hover { background: #c9302c; }
+  .btn-ghost { background: transparent; color: #005BAA; border: 1px solid #005BAA; }
+  .btn-ghost:hover { background: #e8f0f8; }
+  .btn-sm { padding: 4px 10px; font-size: 0.78rem; }
+  .btn-xs { padding: 2px 8px; font-size: 0.75rem; border-radius: 3px; }
+
+  /* TOGGLE */
+  .toggle-wrap { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .toggle { position: relative; width: 40px; height: 22px; cursor: pointer; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider { position: absolute; inset: 0; background: #ccc; border-radius: 22px; transition: background 0.2s; }
+  .toggle-slider:before { content: ''; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px; background: white; border-radius: 50%; transition: transform 0.2s; }
+  .toggle input:checked + .toggle-slider { background: #00A89D; }
+  .toggle input:checked + .toggle-slider:before { transform: translateX(18px); }
+  .toggle-label { font-size: 0.87rem; font-weight: 600; }
+
+  /* WARNING / INFO BANNERS */
+  .banner { padding: 10px 14px; border-radius: 5px; font-size: 0.85rem; margin-bottom: 14px; }
+  .banner-orange { background: #fff3e0; border-left: 4px solid #F47920; color: #7a3e00; }
+  .banner-teal { background: #e6f7f6; border-left: 4px solid #00A89D; color: #004a47; }
+  .banner-green { background: #eaf7ea; border-left: 4px solid #5CB85C; color: #2a5f2a; }
+  .banner-blue { background: #e8f0f8; border-left: 4px solid #005BAA; color: #003366; }
+
+  /* TABLES */
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 16px; }
+  th { background: #f0f0f0; color: #333; font-weight: 700; text-align: left; padding: 8px 10px; border: 1px solid #ddd; }
+  td { padding: 7px 10px; border: 1px solid #e0e0e0; vertical-align: middle; }
+  tr:nth-child(even) td { background: #fafafa; }
+  tr:hover td { background: #f0f8ff; }
+
+  /* CHIPS */
+  .chip-container { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; background: #e6f7f6; color: #00695c; border: 1px solid #b2dfdb; border-radius: 12px; padding: 2px 8px; font-size: 0.78rem; cursor: pointer; user-select: none; }
+  .chip:hover { background: #b2dfdb; }
+  .chip-remove { font-weight: bold; font-size: 0.9rem; color: #00695c; }
+  .chip-add { background: #fff; border: 1px dashed #aaa; color: #555; border-radius: 12px; padding: 2px 8px; font-size: 0.78rem; cursor: pointer; }
+  .chip-add:hover { background: #eee; }
+
+  /* BADGES */
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 700; }
+  .badge-eoi { background: #fff3e0; color: #e65100; border: 1px solid #ffcc80; }
+  .badge-full { background: #e8f0f8; color: #005BAA; border: 1px solid #90caf9; }
+
+  /* AVAILABILITY GRID */
+  .avail-grid { overflow-x: auto; margin-top: 16px; }
+  .avail-grid table th { min-width: 100px; text-align: center; }
+  .avail-cell { text-align: center; padding: 6px; }
+  .avail-full { background: #e6f7f6; color: #00695c; font-size: 0.8rem; font-weight: 700; border-radius: 4px; padding: 4px 8px; }
+  .avail-partial { background: #fff3e0; color: #e65100; font-size: 0.8rem; font-weight: 700; border-radius: 4px; padding: 4px 8px; }
+  .avail-none { background: #ffebee; color: #c62828; font-size: 0.8rem; font-weight: 700; border-radius: 4px; padding: 4px 8px; }
+
+  /* PROJECT CHECKLIST */
+  .project-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid #e0e0e0; border-radius: 5px; margin-bottom: 6px; background: #fff; }
+  .project-row:hover { background: #f0f8ff; }
+  .project-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: #00A89D; }
+  .project-name { flex: 1; font-size: 0.88rem; }
+  .project-count { font-size: 0.82rem; color: #555; margin-bottom: 10px; font-weight: 600; }
+
+  /* UNAVAIL LIST */
+  .unavail-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid #e0e0e0; border-radius: 5px; margin-bottom: 6px; background: #fff; }
+  .unavail-item:hover { background: #fff8f0; }
+  .unavail-info { flex: 1; font-size: 0.85rem; }
+  .unavail-date { font-weight: 700; color: #005BAA; }
+  .unavail-time { color: #555; }
+  .unavail-note { color: #888; font-style: italic; font-size: 0.82rem; }
+
+  /* INLINE FORM */
+  .inline-form { background: #f9f9f9; border: 1px solid #ddd; border-radius: 6px; padding: 16px; margin-bottom: 14px; }
+  .inline-form h4 { font-size: 0.9rem; color: #005BAA; margin-bottom: 12px; }
+
+  /* SCHEDULE TABLE */
+  .schedule-slot { padding: 4px 8px; border-radius: 3px; font-size: 0.8rem; margin-bottom: 2px; background: #e6f7f6; }
+
+  /* CHECKLIST */
+  .checklist-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid #e0e0e0; border-radius: 5px; margin-bottom: 6px; }
+  .checklist-item input[type="checkbox"] { accent-color: #5CB85C; width: 16px; height: 16px; cursor: pointer; }
+  .checklist-item.done span { text-decoration: line-through; color: #999; }
+
+  /* DEBUG LOG */
+  #debug-bar { position: fixed; bottom: 0; left: 0; right: 0; z-index: 1000; background: #1a1a1a; color: #00ff88; font-family: monospace; }
+  #debug-toggle { padding: 5px 14px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 0.8rem; user-select: none; border-bottom: 1px solid #333; }
+  #debug-toggle:hover { background: #2a2a2a; }
+  #debug-content { display: none; max-height: 200px; overflow-y: auto; padding: 8px 14px; }
+  #debug-content.open { display: block; }
+  .debug-entry { font-size: 0.75rem; padding: 2px 0; border-bottom: 1px solid #222; color: #aaffcc; }
+  .debug-entry .ts { color: #5588aa; margin-right: 8px; }
+  .debug-entry .msg { color: #00ff88; }
+
+  /* WELCOME OVERLAY */
+  #welcome-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 2000; display: flex; align-items: center; justify-content: center; }
+  .welcome-box { background: #fff; border-radius: 12px; padding: 40px; max-width: 480px; width: 90%; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+  .welcome-box h1 { color: #00A89D; font-size: 2rem; font-weight: 900; margin-bottom: 10px; letter-spacing: 3px; }
+  .welcome-box p { color: #555; font-size: 0.95rem; line-height: 1.6; margin-bottom: 24px; }
+
+  /* MODAL */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 3000; display: flex; align-items: center; justify-content: center; }
+  .modal-box { background: #fff; border-radius: 8px; padding: 24px; max-width: 500px; width: 90%; box-shadow: 0 10px 40px rgba(0,0,0,0.25); max-height: 80vh; overflow-y: auto; }
+  .modal-box h3 { color: #005BAA; margin-bottom: 14px; }
+  .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+
+  /* CONFIRM DIALOG */
+  #confirm-dialog { display: none; }
+
+  /* MISC */
+  .divider { border: none; border-top: 1px solid #eee; margin: 20px 0; }
+  .text-muted { color: #888; font-size: 0.82rem; }
+  .mt8 { margin-top: 8px; }
+  .mt16 { margin-top: 16px; }
+  .mb8 { margin-bottom: 8px; }
+  .mb16 { margin-bottom: 16px; }
+  .flex-row { display: flex; align-items: center; gap: 10px; }
+  .flex-between { display: flex; align-items: center; justify-content: space-between; }
+  .placeholder-section { background: #f9f9f9; border: 2px dashed #ccc; border-radius: 8px; padding: 32px; text-align: center; color: #aaa; }
+  .placeholder-section p { font-size: 0.9rem; }
+</style>
+</head>
+<body>
+
+<!-- WELCOME OVERLAY -->
+<div id="welcome-overlay" style="display:none;">
+  <div class="welcome-box">
+    <h1>MEGAPANEL</h1>
+    <p>Welcome to MEGAPANEL. To get started, select your working folder. This folder will store your assessor list and monthly panel data.</p>
+    <button class="btn btn-teal" style="font-size:1rem;padding:12px 28px;" onclick="selectFolder()">Select Folder</button>
+  </div>
+</div>
+
+<!-- CONFIRM DIALOG -->
+<div class="modal-overlay" id="confirm-dialog">
+  <div class="modal-box">
+    <h3 id="confirm-title">Confirm</h3>
+    <p id="confirm-message"></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="confirmCancel()">Cancel</button>
+      <button class="btn btn-danger" onclick="confirmOK()">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- TAG EDITOR MODAL -->
+<div class="modal-overlay" id="tag-modal" style="display:none;">
+  <div class="modal-box">
+    <h3>Edit Master Tag List</h3>
+    <div id="tag-modal-list" style="margin-bottom:12px;"></div>
+    <div class="flex-row">
+      <input type="text" id="new-tag-input" placeholder="New tag name..." style="flex:1;">
+      <button class="btn btn-teal btn-sm" onclick="addNewTag()">Add Tag</button>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-blue" onclick="closeTagModal()">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- HEADER -->
+<div id="header">
+  <div id="header-left">
+    <div id="app-title">MEGAPANEL</div>
+    <div id="folder-path" class="text-muted">No folder selected</div>
+  </div>
+  <div id="header-right">
+    <span id="last-saved"></span>
+    <button id="btn-new-panel" onclick="newPanelConfirm()">+ New Panel</button>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+  <!-- SIDEBAR -->
+  <div id="sidebar">
+    <div class="sidebar-tab active" data-tab="data-setup" onclick="switchTab('data-setup')">
+      <span class="tab-number" style="font-size:0.75rem;color:#aaa;">1</span>
+      <span>Data Setup</span>
+      <span class="orange-dot" id="dot-data-setup" style="display:none;margin-left:auto;"></span>
+    </div>
+    <div class="tab-arrow">↓</div>
+    <div class="sidebar-tab" data-tab="assessor-avail" onclick="switchTab('assessor-avail')">
+      <span class="tab-number" style="font-size:0.75rem;color:#aaa;">2</span>
+      <span>Assessor Availability</span>
+      <span class="orange-dot" id="dot-assessor-avail" style="display:none;margin-left:auto;"></span>
+    </div>
+    <div class="tab-arrow">↓</div>
+    <div class="sidebar-tab" data-tab="project-prefs" onclick="switchTab('project-prefs')">
+      <span class="tab-number" style="font-size:0.75rem;color:#aaa;">3</span>
+      <span>Project Preferences</span>
+      <span class="orange-dot" id="dot-project-prefs" style="display:none;margin-left:auto;"></span>
+    </div>
+    <div class="tab-arrow">↓</div>
+    <div class="sidebar-tab" data-tab="output" onclick="switchTab('output')">
+      <span class="tab-number" style="font-size:0.75rem;color:#aaa;">4</span>
+      <span>Output</span>
+      <span class="orange-dot" id="dot-output" style="display:none;margin-left:auto;"></span>
+    </div>
+    <div class="tab-arrow">↓</div>
+    <div class="sidebar-tab" data-tab="preparation" onclick="switchTab('preparation')">
+      <span class="tab-number" style="font-size:0.75rem;color:#aaa;">5</span>
+      <span>Preparation</span>
+      <span class="orange-dot" id="dot-preparation" style="display:none;margin-left:auto;"></span>
+    </div>
+  </div>
+
+  <!-- CONTENT PANELS -->
+  <div id="content">
+
+    <!-- DATA SETUP TAB -->
+    <div class="tab-panel active" id="panel-data-setup">
+      <h2>Data Setup</h2>
+
+      <div class="form-row">
+        <div class="form-group w200">
+          <label for="panel-date">Panel Date</label>
+          <input type="date" id="panel-date" onchange="onPanelDateChange()">
+        </div>
+      </div>
+
+      <div id="day-info-banner" style="display:none;" class="banner banner-teal"></div>
+      <div id="day-warning-banner" style="display:none;" class="banner banner-orange"></div>
+
+      <div id="extra-days-section">
+        <div class="toggle-wrap">
+          <label class="toggle">
+            <input type="checkbox" id="toggle-day-before" onchange="onExtraDayToggle()">
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="toggle-label">Add day before</span>
+        </div>
+        <div id="day-before-hours" style="display:none;" class="form-row" style="margin-left:50px;">
+          <div class="form-group w120">
+            <label>Start Hour</label>
+            <input type="number" id="before-start-hour" min="7" max="12" value="9" onchange="onExtraDayHourChange()">
+          </div>
+          <div class="form-group w120">
+            <label>End Hour</label>
+            <input type="number" id="before-end-hour" min="12" max="20" value="17" onchange="onExtraDayHourChange()">
+          </div>
+        </div>
+        <div class="toggle-wrap">
+          <label class="toggle">
+            <input type="checkbox" id="toggle-day-after" onchange="onExtraDayToggle()">
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="toggle-label">Add day after</span>
+        </div>
+        <div id="day-after-hours" style="display:none;" class="form-row" style="margin-left:50px;">
+          <div class="form-group w120">
+            <label>Start Hour</label>
+            <input type="number" id="after-start-hour" min="7" max="12" value="9" onchange="onExtraDayHourChange()">
+          </div>
+          <div class="form-group w120">
+            <label>End Hour</label>
+            <input type="number" id="after-end-hour" min="12" max="20" value="17" onchange="onExtraDayHourChange()">
+          </div>
+        </div>
+      </div>
+
+      <hr class="divider">
+      <div class="flex-between mb8">
+        <h3 style="margin:0;">Assessor List</h3>
+        <div class="flex-row">
+          <button class="btn btn-ghost btn-sm" onclick="openTagModal()">Edit Tags</button>
+          <button class="btn btn-teal btn-sm" onclick="addAssessorRow()">+ Add Assessor</button>
+        </div>
+      </div>
+      <div id="assessor-table-wrap">
+        <table id="assessor-table">
+          <thead>
+            <tr>
+              <th style="width:200px;">Name</th>
+              <th>Topics</th>
+              <th style="width:130px;">Role</th>
+              <th style="width:60px;">Delete</th>
+            </tr>
+          </thead>
+          <tbody id="assessor-tbody"></tbody>
+        </table>
+      </div>
+
+      <hr class="divider">
+      <h3>Project Upload</h3>
+      <div class="form-row">
+        <div>
+          <label>Upload pipeline export (.csv or .xlsx)</label>
+          <input type="file" id="project-file-input" accept=".csv,.xlsx" onchange="onProjectFileUpload(event)" style="width:auto;">
+        </div>
+      </div>
+      <div id="project-count-label" class="project-count" style="display:none;"></div>
+      <div id="project-checklist"></div>
+    </div>
+
+    <!-- ASSESSOR AVAILABILITY TAB -->
+    <div class="tab-panel" id="panel-assessor-avail">
+      <h2>Assessor Availability</h2>
+      <div id="avail-no-date" class="banner banner-orange" style="display:none;">Please set the Panel Date in Data Setup first.</div>
+      <div id="avail-main" style="display:none;">
+        <div class="form-row">
+          <div class="form-group w200">
+            <label>Select Assessor</label>
+            <select id="avail-assessor-select" onchange="onAvailAssessorChange()">
+              <option value="">— Select assessor —</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="avail-assessor-section" style="display:none;">
+          <div class="flex-between mb8">
+            <h3 id="avail-assessor-heading" style="margin:0;"></h3>
+            <button class="btn btn-teal btn-sm" onclick="showAddUnavailForm()">+ Add Unavailability</button>
+          </div>
+
+          <div id="add-unavail-form" style="display:none;" class="inline-form">
+            <h4>Add Unavailability Block</h4>
+            <div class="form-row">
+              <div class="form-group w200">
+                <label>Date</label>
+                <select id="unavail-date-select"></select>
+              </div>
+              <div class="form-group w120">
+                <label>Start Time</label>
+                <input type="time" id="unavail-start" value="09:00">
+              </div>
+              <div class="form-group w120">
+                <label>End Time</label>
+                <input type="time" id="unavail-end" value="17:00">
+              </div>
+            </div>
+            <div class="form-group mb8">
+              <label>Note (optional)</label>
+              <input type="text" id="unavail-note" placeholder="Reason or note...">
+            </div>
+            <div class="flex-row">
+              <button class="btn btn-teal btn-sm" onclick="confirmAddUnavail()">Confirm</button>
+              <button class="btn btn-ghost btn-sm" onclick="cancelAddUnavail()">Cancel</button>
+            </div>
+          </div>
+
+          <div id="unavail-list"></div>
+        </div>
+
+        <hr class="divider">
+        <h3>Availability Summary Grid</h3>
+        <div class="avail-grid">
+          <table id="avail-grid-table">
+            <thead id="avail-grid-head"></thead>
+            <tbody id="avail-grid-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- PROJECT PREFERENCES TAB -->
+    <div class="tab-panel" id="panel-project-prefs">
+      <h2>Project Preferences</h2>
+      <div id="prefs-no-data" class="banner banner-orange" style="display:none;">Please upload projects and set up assessors first.</div>
+      <div id="prefs-main" style="display:none;">
+        <div class="form-row">
+          <div class="form-group w250">
+            <label>Select Project</label>
+            <select id="prefs-project-select" onchange="onPrefsProjectChange()">
+              <option value="">— Select project —</option>
+            </select>
+          </div>
+        </div>
+        <div id="prefs-project-section" style="display:none;">
+          <h3 id="prefs-project-heading"></h3>
+          <div class="form-row" style="gap:32px;">
+            <div>
+              <label style="margin-bottom:8px;color:#5CB85C;">Preferred Assessors</label>
+              <div id="prefs-preferred-list"></div>
+            </div>
+            <div>
+              <label style="margin-bottom:8px;color:#d9534f;">Excluded Assessors</label>
+              <div id="prefs-excluded-list"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- OUTPUT TAB -->
+    <div class="tab-panel" id="panel-output">
+      <h2>Output</h2>
+      <div class="flex-row mb16">
+        <button class="btn btn-green" onclick="generateSchedule()" style="font-size:1rem;padding:10px 24px;">Generate Schedule</button>
+      </div>
+      <div id="output-result" style="display:none;">
+        <div class="banner banner-green" id="output-banner"></div>
+        <div id="output-table-wrap" style="margin-top:16px; overflow-x:auto;"></div>
+        <div class="flex-row mt16">
+          <button class="btn btn-blue" onclick="exportExcel()">Export to Excel (.xlsx)</button>
+          <button class="btn btn-ghost" onclick="exportWord()">Export to Word (.docx)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- PREPARATION TAB -->
+    <div class="tab-panel" id="panel-preparation">
+      <h2>Preparation</h2>
+      <h3>Preparation Checklist</h3>
+      <div id="prep-checklist-wrap"></div>
+      <button class="btn btn-teal btn-sm mt8" onclick="addPrepItem()">+ Add Item</button>
+      <hr class="divider">
+      <h3>Panel Notes</h3>
+      <textarea id="prep-notes" rows="8" placeholder="Enter any panel preparation notes here..." style="width:100%;" oninput="onPrepNotesChange()"></textarea>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+
+<!-- DEBUG LOG -->
+<div id="debug-bar">
+  <div id="debug-toggle" onclick="toggleDebugLog()">
+    <span>🛠 Debug Log</span>
+    <span id="debug-count" style="color:#888;font-size:0.72rem;"></span>
+    <span id="debug-arrow" style="margin-left:auto;">▲</span>
+  </div>
+  <div id="debug-content">
+    <div id="debug-entries"></div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// STATE
+// ============================================================
+let state = {
+  panelDate: null,
+  additionalDays: [],
+  tags: ['Solar', 'Wind', 'Storage', 'Hydrogen', 'Grid', 'Finance', 'Environment', 'Community'],
+  assessors: [],
+  projects: [],
+  availability: {},
+  projectPreferences: {},
+  prepNotes: '',
+  prepChecklist: []
+};
+
+let dirHandle = null;
+let saveTimeout = null;
+let debugOpen = false;
+let debugCount = 0;
+let confirmCallback = null;
+
+// ============================================================
+// DEBUG LOG
+// ============================================================
+function log(msg) {
+  debugCount++;
+  const now = new Date();
+  const ts = now.toTimeString().slice(0,8);
+  const entries = document.getElementById('debug-entries');
+  const div = document.createElement('div');
+  div.className = 'debug-entry';
+  div.innerHTML = `<span class="ts">[${ts}]</span><span class="msg">${msg}</span>`;
+  entries.prepend(div);
+  document.getElementById('debug-count').textContent = `(${debugCount} entries)`;
+  console.log(`[MEGAPANEL] ${ts} ${msg}`);
+}
+
+function toggleDebugLog() {
+  debugOpen = !debugOpen;
+  const content = document.getElementById('debug-content');
+  const arrow = document.getElementById('debug-arrow');
+  content.classList.toggle('open', debugOpen);
+  arrow.textContent = debugOpen ? '▼' : '▲';
+}
+
+// ============================================================
+// INDEXEDDB
+// ============================================================
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('megapanel-db', 1);
+    req.onupgradeneeded = e => {
+      e.target.result.createObjectStore('handles');
+    };
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror = e => reject(e.target.error);
+  });
+}
+
+async function saveHandleToIDB(handle) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('handles', 'readwrite');
+    tx.objectStore('handles').put(handle, 'workingFolder');
+    tx.oncomplete = resolve;
+    tx.onerror = e => reject(e.target.error);
+  });
+}
+
+async function getHandleFromIDB() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('handles', 'readonly');
+    const req = tx.objectStore('handles').get('workingFolder');
+    req.onsuccess = e => resolve(e.target.result || null);
+    req.onerror = e => reject(e.target.error);
+  });
+}
+
+// ============================================================
+// FOLDER SELECTION & VERIFICATION
+// ============================================================
+async function selectFolder() {
+  try {
+    const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+    dirHandle = handle;
+    await saveHandleToIDB(handle);
+    document.getElementById('welcome-overlay').style.display = 'none';
+    await onFolderReady();
+    log(`Folder selected: ${handle.name}`);
+  } catch (e) {
+    if (e.name !== 'AbortError') {
+      alert('Could not access folder: ' + e.message);
+      log('Folder selection error: ' + e.message);
+    }
+  }
+}
+
+async function verifyStoredHandle() {
+  try {
+    const handle = await getHandleFromIDB();
+    if (!handle) return false;
+    let perm = await handle.queryPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') {
+      perm = await handle.requestPermission({ mode: 'readwrite' });
+    }
+    if (perm === 'granted') {
+      dirHandle = handle;
+      return true;
+    }
+    return false;
+  } catch (e) {
+    log('Handle verification error: ' + e.message);
+    return false;
+  }
+}
+
+async function onFolderReady() {
+  const name = dirHandle.name;
+  document.getElementById('folder-path').textContent = `📁 ${name}`;
+  log(`Working folder ready: ${name}`);
+
+  await loadOrCreateAssessorsFile();
+  await loadStateFile();
+  renderAll();
+}
+
+// ============================================================
+// FILE I/O
+// ============================================================
+async function readFile(filename) {
+  if (!dirHandle) return null;
+  try {
+    const fh = await dirHandle.getFileHandle(filename, { create: false });
+    const file = await fh.getFile();
+    return file;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function writeFile(filename, content) {
+  if (!dirHandle) return;
+  try {
+    const fh = await dirHandle.getFileHandle(filename, { create: true });
+    const writable = await fh.createWritable();
+    await writable.write(content);
+    await writable.close();
+  } catch (e) {
+    log('Write error (' + filename + '): ' + e.message);
+  }
+}
+
+async function loadOrCreateAssessorsFile() {
+  const file = await readFile('assessors.xlsx');
+  if (!file) {
+    log('assessors.xlsx not found — creating with headers only');
+    await saveAssessorsFile();
+    log('Assessor file created');
+    return;
+  }
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+    state.assessors = rows.map(r => ({
+      name: r['Name'] || r['name'] || '',
+      topics: (r['Topics'] || r['topics'] || '').split(',').map(t => t.trim()).filter(Boolean),
+      role: r['Role'] || r['role'] || 'External'
+    })).filter(a => a.name);
+    log(`Loaded ${state.assessors.length} assessors from assessors.xlsx`);
+  } catch (e) {
+    log('Error reading assessors.xlsx: ' + e.message);
+  }
+}
+
+async function saveAssessorsFile() {
+  if (!dirHandle) return;
+  try {
+    const rows = state.assessors.map(a => ({
+      Name: a.name,
+      Topics: a.topics.join(', '),
+      Role: a.role
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Name: '', Topics: '', Role: '' }]);
+    if (!rows.length) {
+      ws['A1'] = { v: 'Name', t: 's' };
+      ws['B1'] = { v: 'Topics', t: 's' };
+      ws['C1'] = { v: 'Role', t: 's' };
+      ws['!ref'] = 'A1:C1';
+    }
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Assessors');
+    const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+    await writeFile('assessors.xlsx', new Blob([buf], { type: 'application/octet-stream' }));
+    log('assessors.xlsx saved');
+  } catch (e) {
+    log('Error saving assessors.xlsx: ' + e.message);
+  }
+}
+
+async function loadStateFile() {
+  const file = await readFile('megapanel_state.json');
+  if (!file) {
+    log('No saved state found — starting fresh');
+    return;
+  }
+  try {
+    const text = await file.text();
+    const saved = JSON.parse(text);
+    // Merge saved state (preserve assessors from xlsx)
+    const assessors = state.assessors;
+    Object.assign(state, saved);
+    if (!saved.assessors || !saved.assessors.length) {
+      state.assessors = assessors;
+    }
+    log('State restored from megapanel_state.json');
+  } catch (e) {
+    log('Error loading state: ' + e.message);
+  }
+}
+
+async function saveState() {
+  if (!dirHandle) return;
+  try {
+    const json = JSON.stringify(state, null, 2);
+    await writeFile('megapanel_state.json', new Blob([json], { type: 'application/json' }));
+    const now = new Date();
+    document.getElementById('last-saved').textContent = `Last saved: ${now.toTimeString().slice(0,5)}`;
+  } catch (e) {
+    log('State save error: ' + e.message);
+  }
+}
+
+function scheduleSave() {
+  clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(saveState, 1000);
+}
+
+// ============================================================
+// TAB NAVIGATION
+// ============================================================
+function switchTab(tabId) {
+  document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabId));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + tabId));
+  updateTabOnFocus(tabId);
+}
+
+function updateTabOnFocus(tabId) {
+  if (tabId === 'assessor-avail') renderAvailTab();
+  if (tabId === 'project-prefs') renderPrefsTab();
+  if (tabId === 'output') renderOutputTab();
+  if (tabId === 'preparation') renderPrepTab();
+}
+
+function updateTabIndicators() {
+  // Data Setup: needs assessors + projects
+  const needsData = !state.assessors.length || !state.projects.length || !state.panelDate;
+  document.getElementById('dot-data-setup').style.display = needsData ? '' : 'none';
+  // Assessor Avail: needs panel date
+  document.getElementById('dot-assessor-avail').style.display = !state.panelDate ? '' : 'none';
+  // Project Prefs: needs projects
+  document.getElementById('dot-project-prefs').style.display = (!state.projects.length || !state.assessors.length) ? '' : 'none';
+  // Output: needs projects + assessors
+  document.getElementById('dot-output').style.display = (!state.projects.length || !state.assessors.length) ? '' : 'none';
+  // Prep: always ok
+  document.getElementById('dot-preparation').style.display = 'none';
+}
+
+// ============================================================
+// PANEL DATE & DAYS
+// ============================================================
+function onPanelDateChange() {
+  state.panelDate = document.getElementById('panel-date').value || null;
+  log(`Panel date set: ${state.panelDate}`);
+  updateDayInfo();
+  updateTabIndicators();
+  scheduleSave();
+}
+
+function onExtraDayToggle() {
+  const before = document.getElementById('toggle-day-before').checked;
+  const after = document.getElementById('toggle-day-after').checked;
+  document.getElementById('day-before-hours').style.display = before ? '' : 'none';
+  document.getElementById('day-after-hours').style.display = after ? '' : 'none';
+  updateAdditionalDays();
+  updateDayInfo();
+  scheduleSave();
+}
+
+function onExtraDayHourChange() {
+  updateAdditionalDays();
+  updateDayInfo();
+  scheduleSave();
+}
+
+function updateAdditionalDays() {
+  state.additionalDays = [];
+  if (document.getElementById('toggle-day-before').checked) {
+    state.additionalDays.push({
+      type: 'before',
+      startHour: parseInt(document.getElementById('before-start-hour').value) || 9,
+      endHour: parseInt(document.getElementById('before-end-hour').value) || 17
+    });
+  }
+  if (document.getElementById('toggle-day-after').checked) {
+    state.additionalDays.push({
+      type: 'after',
+      startHour: parseInt(document.getElementById('after-start-hour').value) || 9,
+      endHour: parseInt(document.getElementById('after-end-hour').value) || 17
+    });
+  }
+}
+
+function updateDayInfo() {
+  const banner = document.getElementById('day-info-banner');
+  const warn = document.getElementById('day-warning-banner');
+  if (!state.panelDate) { banner.style.display = 'none'; warn.style.display = 'none'; return; }
+
+  const selected = state.projects.filter(p => p.included).length;
+  const SLOTS_PER_DAY = 8; // 45 min x 8 + breaks = 7.5h
+  const totalSlots = SLOTS_PER_DAY + state.additionalDays.reduce((acc, d) => {
+    const hrs = d.endHour - d.startHour;
+    return acc + Math.floor(hrs * 60 / 45);
+  }, 0);
+
+  const panelDays = getPanelDays();
+  banner.style.display = '';
+  banner.innerHTML = `Panel days: <strong>${panelDays.map(formatDateNice).join(', ')}</strong> &nbsp;|&nbsp; Available slots: <strong>${totalSlots}</strong> &nbsp;|&nbsp; Projects selected: <strong>${selected}</strong>`;
+
+  if (selected > totalSlots) {
+    warn.style.display = '';
+    warn.textContent = `⚠ ${selected - totalSlots} project(s) exceed available slots. Consider adding an extra day.`;
+  } else {
+    warn.style.display = 'none';
+  }
+}
+
+function getPanelDays() {
+  if (!state.panelDate) return [];
+  const days = [];
+  const before = state.additionalDays.find(d => d.type === 'before');
+  const after = state.additionalDays.find(d => d.type === 'after');
+  if (before) {
+    const d = new Date(state.panelDate);
+    d.setDate(d.getDate() - 1);
+    days.push(d.toISOString().slice(0,10));
+  }
+  days.push(state.panelDate);
+  if (after) {
+    const d = new Date(state.panelDate);
+    d.setDate(d.getDate() + 1);
+    days.push(d.toISOString().slice(0,10));
+  }
+  return days;
+}
+
+function formatDateNice(iso) {
+  const d = new Date(iso + 'T12:00:00');
+  return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+// ============================================================
+// ASSESSOR TABLE
+// ============================================================
+function renderAssessorTable() {
+  const tbody = document.getElementById('assessor-tbody');
+  tbody.innerHTML = '';
+  state.assessors.forEach((assessor, idx) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input type="text" value="${escHtml(assessor.name)}" placeholder="Assessor name" style="border:none;outline:none;width:100%;font-size:0.88rem;" onchange="onAssessorNameChange(${idx}, this.value)"></td>
+      <td><div class="chip-container" id="chip-container-${idx}"></div></td>
+      <td>
+        <select style="border:none;outline:none;width:100%;font-size:0.88rem;" onchange="onAssessorRoleChange(${idx}, this.value)">
+          <option value="Internal" ${assessor.role === 'Internal' ? 'selected' : ''}>Internal</option>
+          <option value="External" ${assessor.role === 'External' ? 'selected' : ''}>External</option>
+        </select>
+      </td>
+      <td><button class="btn btn-danger btn-xs" onclick="deleteAssessor(${idx})">🗑</button></td>
+    `;
+    tbody.appendChild(tr);
+    renderAssessorChips(idx);
+  });
+}
+
+function renderAssessorChips(idx) {
+  const container = document.getElementById(`chip-container-${idx}`);
+  if (!container) return;
+  const assessor = state.assessors[idx];
+  container.innerHTML = '';
+  assessor.topics.forEach((topic, ti) => {
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.innerHTML = `${escHtml(topic)} <span class="chip-remove" onclick="removeAssessorTopic(${idx},${ti})">×</span>`;
+    container.appendChild(chip);
+  });
+  // Add topic dropdown
+  const remaining = state.tags.filter(t => !assessor.topics.includes(t));
+  if (remaining.length) {
+    const sel = document.createElement('select');
+    sel.style.cssText = 'font-size:0.78rem;border:1px dashed #aaa;border-radius:12px;padding:2px 6px;background:#fff;color:#555;cursor:pointer;';
+    sel.innerHTML = '<option value="">+ topic</option>' + remaining.map(t => `<option value="${escHtml(t)}">${escHtml(t)}</option>`).join('');
+    sel.onchange = function() {
+      if (this.value) {
+        addAssessorTopic(idx, this.value);
+        this.value = '';
+      }
+    };
+    container.appendChild(sel);
+  }
+}
+
+function addAssessorRow() {
+  state.assessors.push({ name: '', topics: [], role: 'External' });
+  renderAssessorTable();
+  log('Assessor row added');
+  scheduleSave();
+}
+
+function deleteAssessor(idx) {
+  const name = state.assessors[idx].name || '(unnamed)';
+  state.assessors.splice(idx, 1);
+  renderAssessorTable();
+  saveAssessorsFile();
+  scheduleSave();
+  log(`Assessor deleted: ${name}`);
+  updateTabIndicators();
+}
+
+function onAssessorNameChange(idx, value) {
+  state.assessors[idx].name = value;
+  saveAssessorsFile();
+  scheduleSave();
+  log(`Assessor name updated: ${value}`);
+  updateTabIndicators();
+}
+
+function onAssessorRoleChange(idx, value) {
+  state.assessors[idx].role = value;
+  saveAssessorsFile();
+  scheduleSave();
+  log(`Assessor role updated: ${state.assessors[idx].name} → ${value}`);
+}
+
+function addAssessorTopic(idx, topic) {
+  if (!state.assessors[idx].topics.includes(topic)) {
+    state.assessors[idx].topics.push(topic);
+    renderAssessorChips(idx);
+    saveAssessorsFile();
+    scheduleSave();
+    log(`Topic added to ${state.assessors[idx].name}: ${topic}`);
+  }
+}
+
+function removeAssessorTopic(idx, ti) {
+  const topic = state.assessors[idx].topics[ti];
+  state.assessors[idx].topics.splice(ti, 1);
+  renderAssessorChips(idx);
+  saveAssessorsFile();
+  scheduleSave();
+  log(`Topic removed from ${state.assessors[idx].name}: ${topic}`);
+}
+
+// ============================================================
+// TAG MODAL
+// ============================================================
+function openTagModal() {
+  renderTagModalList();
+  document.getElementById('tag-modal').style.display = 'flex';
+}
+
+function closeTagModal() {
+  document.getElementById('tag-modal').style.display = 'none';
+  renderAssessorTable();
+  scheduleSave();
+}
+
+function renderTagModalList() {
+  const list = document.getElementById('tag-modal-list');
+  list.innerHTML = '';
+  state.tags.forEach((tag, i) => {
+    const div = document.createElement('div');
+    div.className = 'flex-row mb8';
+    div.style.borderBottom = '1px solid #eee';
+    div.style.paddingBottom = '6px';
+    div.innerHTML = `<span style="flex:1;">${escHtml(tag)}</span><button class="btn btn-danger btn-xs" onclick="deleteTag(${i})">Remove</button>`;
+    list.appendChild(div);
+  });
+  if (!state.tags.length) list.innerHTML = '<p class="text-muted">No tags yet.</p>';
+}
+
+function addNewTag() {
+  const input = document.getElementById('new-tag-input');
+  const val = input.value.trim();
+  if (!val) return;
+  if (state.tags.includes(val)) { alert('Tag already exists.'); return; }
+  state.tags.push(val);
+  input.value = '';
+  renderTagModalList();
+  scheduleSave();
+  log(`Tag added: ${val}`);
+}
+
+function deleteTag(i) {
+  const tag = state.tags[i];
+  state.tags.splice(i, 1);
+  // Remove from all assessors
+  state.assessors.forEach(a => {
+    a.topics = a.topics.filter(t => t !== tag);
+  });
+  renderTagModalList();
+  saveAssessorsFile();
+  scheduleSave();
+  log(`Tag deleted: ${tag}`);
+}
+
+// ============================================================
+// PROJECT UPLOAD
+// ============================================================
+async function onProjectFileUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  log(`Project file selected: ${file.name}`);
+  try {
+    const buf = await file.arrayBuffer();
+    let rows;
+    if (file.name.endsWith('.csv')) {
+      const text = new TextDecoder().decode(buf);
+      const wb = XLSX.read(text, { type: 'string' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+    } else {
+      const wb = XLSX.read(buf, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+    }
+
+    state.projects = rows.map(r => {
+      const name = r['Project Name'] || r['Name'] || r['name'] || r['project_name'] || Object.values(r)[0] || 'Unknown';
+      const stage = r['Stage'] || r['stage'] || r['Application Stage'] || '';
+      return { name: String(name), stage: String(stage), included: true, ...r };
+    }).filter(p => p.name && p.name !== 'Unknown' || Object.keys(p).length > 3);
+
+    log(`Parsed ${state.projects.length} projects from ${file.name}`);
+    renderProjectChecklist();
+    updateDayInfo();
+    updateTabIndicators();
+    scheduleSave();
+  } catch (e) {
+    log('Project file parse error: ' + e.message);
+    alert('Error reading project file: ' + e.message);
+  }
+}
+
+function renderProjectChecklist() {
+  const wrap = document.getElementById('project-checklist');
+  const countLabel = document.getElementById('project-count-label');
+  wrap.innerHTML = '';
+  if (!state.projects.length) { countLabel.style.display = 'none'; return; }
+
+  const selected = state.projects.filter(p => p.included).length;
+  countLabel.style.display = '';
+  countLabel.textContent = `${selected} of ${state.projects.length} projects selected`;
+
+  state.projects.forEach((proj, i) => {
+    const row = document.createElement('div');
+    row.className = 'project-row';
+    const stageClass = proj.stage.toLowerCase().includes('eoi') ? 'badge-eoi' : 'badge-full';
+    const stageTxt = proj.stage || 'Unknown';
+    row.innerHTML = `
+      <input type="checkbox" ${proj.included ? 'checked' : ''} onchange="onProjectToggle(${i}, this.checked)">
+      <span class="project-name">${escHtml(proj.name)}</span>
+      <span class="badge ${stageClass}">${escHtml(stageTxt)}</span>
+    `;
+    wrap.appendChild(row);
+  });
+}
+
+function onProjectToggle(idx, checked) {
+  state.projects[idx].included = checked;
+  const selected = state.projects.filter(p => p.included).length;
+  document.getElementById('project-count-label').textContent = `${selected} of ${state.projects.length} projects selected`;
+  updateDayInfo();
+  scheduleSave();
+}
+
+// ============================================================
+// ASSESSOR AVAILABILITY TAB
+// ============================================================
+function renderAvailTab() {
+  const hasDate = !!state.panelDate;
+  document.getElementById('avail-no-date').style.display = hasDate ? 'none' : '';
+  document.getElementById('avail-main').style.display = hasDate ? '' : 'none';
+  if (!hasDate) return;
+
+  // Populate assessor dropdown
+  const sel = document.getElementById('avail-assessor-select');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">— Select assessor —</option>';
+  state.assessors.forEach(a => {
+    const opt = document.createElement('option');
+    opt.value = a.name;
+    opt.textContent = a.name;
+    sel.appendChild(opt);
+  });
+  if (current) sel.value = current;
+
+  renderAvailGrid();
+  onAvailAssessorChange();
+}
+
+function onAvailAssessorChange() {
+  const name = document.getElementById('avail-assessor-select').value;
+  const section = document.getElementById('avail-assessor-section');
+  if (!name) { section.style.display = 'none'; return; }
+  section.style.display = '';
+  document.getElementById('avail-assessor-heading').textContent = name + ' — Unavailability';
+  document.getElementById('add-unavail-form').style.display = 'none';
+  renderUnavailList(name);
+}
+
+function showAddUnavailForm() {
+  const form = document.getElementById('add-unavail-form');
+  form.style.display = '';
+  const days = getPanelDays();
+  const sel = document.getElementById('unavail-date-select');
+  sel.innerHTML = days.map(d => `<option value="${d}">${formatDateNice(d)}</option>`).join('');
+  document.getElementById('unavail-note').value = '';
+  document.getElementById('unavail-start').value = '09:00';
+  document.getElementById('unavail-end').value = '17:00';
+}
+
+function cancelAddUnavail() {
+  document.getElementById('add-unavail-form').style.display = 'none';
+}
+
+function confirmAddUnavail() {
+  const name = document.getElementById('avail-assessor-select').value;
+  if (!name) return;
+  const date = document.getElementById('unavail-date-select').value;
+  const startTime = document.getElementById('unavail-start').value;
+  const endTime = document.getElementById('unavail-end').value;
+  const note = document.getElementById('unavail-note').value.trim();
+
+  if (!state.availability[name]) state.availability[name] = [];
+  state.availability[name].push({ date, startTime, endTime, note });
+  log(`Unavailability added for ${name}: ${date} ${startTime}-${endTime}${note ? ' (' + note + ')' : ''}`);
+
+  document.getElementById('add-unavail-form').style.display = 'none';
+  renderUnavailList(name);
+  renderAvailGrid();
+  scheduleSave();
+}
+
+function renderUnavailList(name) {
+  const list = document.getElementById('unavail-list');
+  list.innerHTML = '';
+  const blocks = state.availability[name] || [];
+  if (!blocks.length) {
+    list.innerHTML = '<p class="text-muted" style="padding:8px 0;">No unavailability blocks recorded.</p>';
+    return;
+  }
+  blocks.forEach((block, i) => {
+    const item = document.createElement('div');
+    item.className = 'unavail-item';
+    item.innerHTML = `
+      <div class="unavail-info">
+        <span class="unavail-date">${formatDateNice(block.date)}</span>
+        &nbsp;<span class="unavail-time">${block.startTime} – ${block.endTime}</span>
+        ${block.note ? `<div class="unavail-note">${escHtml(block.note)}</div>` : ''}
+      </div>
+      <button class="btn btn-danger btn-xs" onclick="deleteUnavail('${escAttr(name)}', ${i})">🗑</button>
+    `;
+    list.appendChild(item);
+  });
+}
+
+function deleteUnavail(name, idx) {
+  state.availability[name].splice(idx, 1);
+  log(`Unavailability removed for ${name} (index ${idx})`);
+  renderUnavailList(name);
+  renderAvailGrid();
+  scheduleSave();
+}
+
+function renderAvailGrid() {
+  const head = document.getElementById('avail-grid-head');
+  const body = document.getElementById('avail-grid-body');
+  const days = getPanelDays();
+  if (!days.length || !state.assessors.length) {
+    head.innerHTML = ''; body.innerHTML = '';
+    return;
+  }
+
+  head.innerHTML = '<tr><th>Assessor</th>' + days.map(d => `<th>${formatDateNice(d)}</th>`).join('') + '</tr>';
+  body.innerHTML = '';
+
+  state.assessors.forEach(assessor => {
+    const tr = document.createElement('tr');
+    let cells = `<td style="font-weight:600;">${escHtml(assessor.name)}</td>`;
+    days.forEach(day => {
+      const blocks = (state.availability[assessor.name] || []).filter(b => b.date === day);
+      let cellContent, cellClass;
+      if (!blocks.length) {
+        cellContent = 'Available';
+        cellClass = 'avail-full';
+      } else {
+        // Check if fully unavailable (covers 9:00-17:00)
+        const fullyUnavail = blocks.some(b => b.startTime <= '09:00' && b.endTime >= '17:00');
+        if (fullyUnavail) {
+          cellContent = 'Unavailable';
+          cellClass = 'avail-none';
+        } else {
+          cellContent = 'Partial';
+          cellClass = 'avail-partial';
+        }
+      }
+      cells += `<td class="avail-cell"><span class="${cellClass}">${cellContent}</span></td>`;
+    });
+    tr.innerHTML = cells;
+    body.appendChild(tr);
+  });
+}
+
+// ============================================================
+// PROJECT PREFERENCES TAB
+// ============================================================
+function renderPrefsTab() {
+  const hasData = state.projects.length > 0 && state.assessors.length > 0;
+  document.getElementById('prefs-no-data').style.display = hasData ? 'none' : '';
+  document.getElementById('prefs-main').style.display = hasData ? '' : 'none';
+  if (!hasData) return;
+
+  const sel = document.getElementById('prefs-project-select');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">— Select project —</option>';
+  state.projects.filter(p => p.included).forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.name;
+    opt.textContent = p.name;
+    sel.appendChild(opt);
+  });
+  if (current) sel.value = current;
+  onPrefsProjectChange();
+}
+
+function onPrefsProjectChange() {
+  const name = document.getElementById('prefs-project-select').value;
+  const section = document.getElementById('prefs-project-section');
+  if (!name) { section.style.display = 'none'; return; }
+  section.style.display = '';
+  document.getElementById('prefs-project-heading').textContent = name;
+
+  if (!state.projectPreferences[name]) {
+    state.projectPreferences[name] = { preferred: [], excluded: [] };
+  }
+  const prefs = state.projectPreferences[name];
+
+  const prefList = document.getElementById('prefs-preferred-list');
+  const exclList = document.getElementById('prefs-excluded-list');
+  prefList.innerHTML = '';
+  exclList.innerHTML = '';
+
+  state.assessors.forEach(a => {
+    const isPref = prefs.preferred.includes(a.name);
+    const isExcl = prefs.excluded.includes(a.name);
+
+    const prefDiv = document.createElement('div');
+    prefDiv.className = 'flex-row mb8';
+    prefDiv.innerHTML = `
+      <input type="checkbox" ${isPref ? 'checked' : ''} id="pref-${escAttr(a.name)}" style="accent-color:#5CB85C;"
+        onchange="onPrefChange('${escAttr(name)}', '${escAttr(a.name)}', 'preferred', this.checked)">
+      <label for="pref-${escAttr(a.name)}" style="font-weight:normal;cursor:pointer;">${escHtml(a.name)}</label>
+    `;
+    prefList.appendChild(prefDiv);
+
+    const exclDiv = document.createElement('div');
+    exclDiv.className = 'flex-row mb8';
+    exclDiv.innerHTML = `
+      <input type="checkbox" ${isExcl ? 'checked' : ''} id="excl-${escAttr(a.name)}" style="accent-color:#d9534f;"
+        onchange="onPrefChange('${escAttr(name)}', '${escAttr(a.name)}', 'excluded', this.checked)">
+      <label for="excl-${escAttr(a.name)}" style="font-weight:normal;cursor:pointer;">${escHtml(a.name)}</label>
+    `;
+    exclList.appendChild(exclDiv);
+  });
+}
+
+function onPrefChange(project, assessor, type, checked) {
+  if (!state.projectPreferences[project]) state.projectPreferences[project] = { preferred: [], excluded: [] };
+  const prefs = state.projectPreferences[project];
+  if (checked) {
+    if (!prefs[type].includes(assessor)) prefs[type].push(assessor);
+    // Remove from opposite
+    const opp = type === 'preferred' ? 'excluded' : 'preferred';
+    prefs[opp] = prefs[opp].filter(a => a !== assessor);
+  } else {
+    prefs[type] = prefs[type].filter(a => a !== assessor);
+  }
+  log(`Project preference updated: ${project} — ${assessor} → ${type} = ${checked}`);
+  scheduleSave();
+  // Re-render to sync checkboxes
+  onPrefsProjectChange();
+}
+
+// ============================================================
+// OUTPUT TAB
+// ============================================================
+function renderOutputTab() {
+  // Nothing to auto-render here
+}
+
+function generateSchedule() {
+  const projects = state.projects.filter(p => p.included);
+  if (!projects.length) { alert('No projects selected.'); return; }
+  if (!state.panelDate) { alert('Please set the panel date first.'); return; }
+
+  log(`Generating schedule for ${projects.length} projects`);
+
+  const days = getPanelDays();
+  const SLOT_MIN = 45;
+  const START_HOUR = 9;
+  const END_HOUR = 17;
+
+  let schedule = [];
+  let currentDayIdx = 0;
+  let currentMinute = START_HOUR * 60;
+  let breakAdded = false;
+
+  projects.forEach((proj, i) => {
+    if (currentDayIdx >= days.length) {
+      schedule.push({ day: 'Overflow', time: 'N/A', project: proj.name, stage: proj.stage });
+      return;
+    }
+
+    const dayEnd = END_HOUR * 60;
+    // Add morning break at 10:45 (after 2 slots)
+    if (!breakAdded && currentMinute >= 10 * 60 + 45 && currentMinute < 12 * 60) {
+      breakAdded = true;
+    }
+
+    if (currentMinute + SLOT_MIN > dayEnd) {
+      currentDayIdx++;
+      currentMinute = START_HOUR * 60;
+      breakAdded = false;
+      if (currentDayIdx >= days.length) {
+        schedule.push({ day: 'Overflow', time: 'N/A', project: proj.name, stage: proj.stage });
+        return;
+      }
+    }
+
+    const hh = String(Math.floor(currentMinute / 60)).padStart(2, '0');
+    const mm = String(currentMinute % 60).padStart(2, '0');
+    const endMin = currentMinute + SLOT_MIN;
+    const hh2 = String(Math.floor(endMin / 60)).padStart(2, '0');
+    const mm2 = String(endMin % 60).padStart(2, '0');
+
+    schedule.push({
+      day: formatDateNice(days[currentDayIdx]),
+      time: `${hh}:${mm} – ${hh2}:${mm2}`,
+      project: proj.name,
+      stage: proj.stage
+    });
+
+    currentMinute += SLOT_MIN;
+
+    // 15 min break after every 4th slot
+    if ((i + 1) % 4 === 0) currentMinute += 15;
+    // 45 min lunch break after slot 4 if > 12:00
+    if (currentMinute >= 12 * 60 && !breakAdded) {
+      currentMinute += 45;
+      breakAdded = true;
+    }
+  });
+
+  window._generatedSchedule = schedule;
+
+  const result = document.getElementById('output-result');
+  result.style.display = '';
+  document.getElementById('output-banner').textContent = `Schedule generated: ${schedule.filter(s => s.day !== 'Overflow').length} projects scheduled across ${days.length} day(s).`;
+
+  const wrap = document.getElementById('output-table-wrap');
+  let html = '<table><thead><tr><th>Day</th><th>Time Slot</th><th>Project</th><th>Stage</th></tr></thead><tbody>';
+  schedule.forEach(s => {
+    const rowStyle = s.day === 'Overflow' ? 'style="background:#fff3e0;"' : '';
+    html += `<tr ${rowStyle}><td>${escHtml(s.day)}</td><td>${escHtml(s.time)}</td><td>${escHtml(s.project)}</td><td><span class="badge ${s.stage.toLowerCase().includes('eoi') ? 'badge-eoi' : 'badge-full'}">${escHtml(s.stage)}</span></td></tr>`;
+  });
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+
+  log(`Schedule generated: ${schedule.length} slots`);
+}
+
+function exportExcel() {
+  if (!window._generatedSchedule) { alert('Generate schedule first.'); return; }
+  const ws = XLSX.utils.json_to_sheet(window._generatedSchedule);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Schedule');
+  XLSX.writeFile(wb, 'MEGAPANEL_Schedule.xlsx');
+  log('Schedule exported to Excel');
+}
+
+async function exportWord() {
+  if (!window._generatedSchedule) { alert('Generate schedule first.'); return; }
+  try {
+    const { Document, Paragraph, Table, TableRow, TableCell, TextRun, Packer, WidthType, AlignmentType } = docx;
+    const rows = [
+      new TableRow({
+        children: ['Day','Time Slot','Project','Stage'].map(h =>
+          new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: h, bold: true })] })] })
+        )
+      }),
+      ...window._generatedSchedule.map(s =>
+        new TableRow({
+          children: [s.day, s.time, s.project, s.stage].map(v =>
+            new TableCell({ children: [new Paragraph(v)] })
+          )
+        })
+      )
+    ];
+
+    const doc = new Document({
+      sections: [{
+        children: [
+          new Paragraph({ children: [new TextRun({ text: 'MEGAPANEL Schedule', bold: true, size: 32 })] }),
+          new Paragraph(''),
+          new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } })
+        ]
+      }]
+    });
+
+    const buf = await Packer.toBlob(doc);
+    const url = URL.createObjectURL(buf);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'MEGAPANEL_Schedule.docx';
+    a.click();
+    URL.revokeObjectURL(url);
+    log('Schedule exported to Word');
+  } catch (e) {
+    log('Word export error: ' + e.message);
+    alert('Word export error: ' + e.message);
+  }
+}
+
+// ============================================================
+// PREPARATION TAB
+// ============================================================
+function renderPrepTab() {
+  document.getElementById('prep-notes').value = state.prepNotes || '';
+  renderPrepChecklist();
+}
+
+function renderPrepChecklist() {
+  const wrap = document.getElementById('prep-checklist-wrap');
+  wrap.innerHTML = '';
+  if (!state.prepChecklist.length) {
+    wrap.innerHTML = '<p class="text-muted mb8">No items yet. Click "+ Add Item" to create one.</p>';
+    return;
+  }
+  state.prepChecklist.forEach((item, i) => {
+    const div = document.createElement('div');
+    div.className = 'checklist-item' + (item.done ? ' done' : '');
+    div.innerHTML = `
+      <input type="checkbox" ${item.done ? 'checked' : ''} onchange="onPrepCheckChange(${i}, this.checked)" style="accent-color:#5CB85C;">
+      <span style="flex:1;">${escHtml(item.text)}</span>
+      <button class="btn btn-danger btn-xs" onclick="deletePrepItem(${i})">🗑</button>
+    `;
+    wrap.appendChild(div);
+  });
+}
+
+function addPrepItem() {
+  const text = prompt('Enter preparation task:');
+  if (!text || !text.trim()) return;
+  state.prepChecklist.push({ text: text.trim(), done: false });
+  renderPrepChecklist();
+  scheduleSave();
+  log(`Prep task added: ${text.trim()}`);
+}
+
+function deletePrepItem(i) {
+  state.prepChecklist.splice(i, 1);
+  renderPrepChecklist();
+  scheduleSave();
+}
+
+function onPrepCheckChange(i, checked) {
+  state.prepChecklist[i].done = checked;
+  renderPrepChecklist();
+  scheduleSave();
+}
+
+function onPrepNotesChange() {
+  state.prepNotes = document.getElementById('prep-notes').value;
+  scheduleSave();
+}
+
+// ============================================================
+// NEW PANEL
+// ============================================================
+function newPanelConfirm() {
+  showConfirm(
+    'New Panel',
+    'This will clear all current panel data. Are you sure? (Assessor list will be preserved.)',
+    () => {
+      const assessors = [...state.assessors];
+      const tags = [...state.tags];
+      state = {
+        panelDate: null,
+        additionalDays: [],
+        tags,
+        assessors,
+        projects: [],
+        availability: {},
+        projectPreferences: {},
+        prepNotes: '',
+        prepChecklist: []
+      };
+      renderAll();
+      scheduleSave();
+      log('Panel reset to new state');
+    }
+  );
+}
+
+// ============================================================
+// CONFIRM DIALOG
+// ============================================================
+function showConfirm(title, message, callback) {
+  document.getElementById('confirm-title').textContent = title;
+  document.getElementById('confirm-message').textContent = message;
+  document.getElementById('confirm-dialog').style.display = 'flex';
+  confirmCallback = callback;
+}
+
+function confirmOK() {
+  document.getElementById('confirm-dialog').style.display = 'none';
+  if (confirmCallback) { confirmCallback(); confirmCallback = null; }
+}
+
+function confirmCancel() {
+  document.getElementById('confirm-dialog').style.display = 'none';
+  confirmCallback = null;
+}
+
+// ============================================================
+// FULL RENDER
+// ============================================================
+function renderAll() {
+  // Restore panel date
+  if (state.panelDate) {
+    document.getElementById('panel-date').value = state.panelDate;
+  }
+  // Restore extra day toggles
+  const before = state.additionalDays.find(d => d.type === 'before');
+  const after = state.additionalDays.find(d => d.type === 'after');
+  document.getElementById('toggle-day-before').checked = !!before;
+  document.getElementById('day-before-hours').style.display = before ? '' : 'none';
+  document.getElementById('toggle-day-after').checked = !!after;
+  document.getElementById('day-after-hours').style.display = after ? '' : 'none';
+  if (before) {
+    document.getElementById('before-start-hour').value = before.startHour;
+    document.getElementById('before-end-hour').value = before.endHour;
+  }
+  if (after) {
+    document.getElementById('after-start-hour').value = after.startHour;
+    document.getElementById('after-end-hour').value = after.endHour;
+  }
+  updateDayInfo();
+  renderAssessorTable();
+  renderProjectChecklist();
+  updateTabIndicators();
+  renderPrepTab();
+  log('UI fully rendered from state');
+}
+
+// ============================================================
+// UTILITIES
+// ============================================================
+function escHtml(str) {
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function escAttr(str) {
+  return String(str || '').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+}
+
+// ============================================================
+// INIT
+// ============================================================
+async function init() {
+  log('MEGAPANEL initialising...');
+
+  if (!('showDirectoryPicker' in window)) {
+    document.getElementById('welcome-overlay').style.display = 'flex';
+    document.querySelector('.welcome-box p').innerHTML = '⚠ Your browser does not support the File System Access API.<br>Please use Chrome or Edge.';
+    document.querySelector('.welcome-box button').disabled = true;
+    log('File System Access API not available');
+    return;
+  }
+
+  const ok = await verifyStoredHandle();
+  if (ok) {
+    log('Stored folder handle verified');
+    await onFolderReady();
+  } else {
+    log('No valid stored folder — showing welcome overlay');
+    document.getElementById('welcome-overlay').style.display = 'flex';
+  }
+}
+
+window.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
