@@ -178,6 +178,23 @@
   .flex-between { display: flex; align-items: center; justify-content: space-between; }
   .placeholder-section { background: #f9f9f9; border: 2px dashed #ccc; border-radius: 8px; padding: 32px; text-align: center; color: #aaa; }
   .placeholder-section p { font-size: 0.9rem; }
+
+  /* PROJECT PREFERENCE CARDS */
+  .pref-card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+  .pref-card-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #eee; }
+  .pref-card-title { font-size: 1rem; font-weight: 700; color: #005BAA; flex: 1; }
+  .pref-section { margin-bottom: 14px; }
+  .pref-section > label { font-size: 0.82rem; font-weight: 600; color: #333; display: block; margin-bottom: 6px; }
+
+  /* TIME BLOCKS */
+  .time-blocks-group { margin-bottom: 10px; }
+  .time-blocks-day-label { font-size: 0.78rem; color: #888; margin-bottom: 5px; font-weight: 600; }
+  .time-blocks-row { display: flex; flex-wrap: wrap; gap: 4px; }
+  .time-block { padding: 5px 9px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; cursor: pointer; border: 1px solid #ccc; user-select: none; transition: background 0.15s, color 0.15s, border-color 0.15s; }
+  .time-block.neutral { background: #fff; color: #555; border-color: #ccc; }
+  .time-block.avoid { background: #F47920; color: #fff; border-color: #d96a18; }
+  .time-block.hard-no { background: #d9534f; color: #fff; border-color: #c9302c; }
+  .time-block:hover { opacity: 0.8; }
 </style>
 </head>
 <body>
@@ -417,29 +434,7 @@
     <div class="tab-panel" id="panel-project-prefs">
       <h2>Project Preferences</h2>
       <div id="prefs-no-data" class="banner banner-orange" style="display:none;">Please upload projects and set up assessors first.</div>
-      <div id="prefs-main" style="display:none;">
-        <div class="form-row">
-          <div class="form-group w250">
-            <label>Select Project</label>
-            <select id="prefs-project-select" onchange="onPrefsProjectChange()">
-              <option value="">— Select project —</option>
-            </select>
-          </div>
-        </div>
-        <div id="prefs-project-section" style="display:none;">
-          <h3 id="prefs-project-heading"></h3>
-          <div class="form-row" style="gap:32px;">
-            <div>
-              <label style="margin-bottom:8px;color:#5CB85C;">Preferred Assessors</label>
-              <div id="prefs-preferred-list"></div>
-            </div>
-            <div>
-              <label style="margin-bottom:8px;color:#d9534f;">Excluded Assessors</label>
-              <div id="prefs-excluded-list"></div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <div id="prefs-cards"></div>
     </div>
 
     <!-- OUTPUT TAB -->
@@ -1024,13 +1019,16 @@ async function onProjectFileUpload(event) {
       rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
     }
 
+    const totalDetected = rows.length;
+    let skipped = 0;
     state.projects = rows.map(r => {
-      const name = r['Project Name'] || r['Name'] || r['name'] || r['project_name'] || Object.values(r)[0] || 'Unknown';
+      const name = r['Project Name'] || r['Name'] || r['name'] || r['project_name'] || Object.values(r)[0] || '';
       const stage = r['Stage'] || r['stage'] || r['Application Stage'] || '';
-      return { name: String(name), stage: String(stage), included: true, ...r };
-    }).filter(p => p.name && p.name !== 'Unknown' || Object.keys(p).length > 3);
+      if (!String(name).trim()) { skipped++; return null; }
+      return { name: String(name).trim(), stage: String(stage), included: true, ...r };
+    }).filter(Boolean);
 
-    log(`Parsed ${state.projects.length} projects from ${file.name}`);
+    log(`Project upload: ${totalDetected} rows detected, ${state.projects.length} parsed successfully${skipped ? ', ' + skipped + ' row(s) skipped (no project name)' : ''}`);
     renderProjectChecklist();
     updateDayInfo();
     updateTabIndicators();
@@ -1214,81 +1212,291 @@ function renderAvailGrid() {
 // ============================================================
 // PROJECT PREFERENCES TAB
 // ============================================================
+function safeId(str) {
+  return String(str || '').replace(/[^a-zA-Z0-9]/g, '_');
+}
+
+function ensurePref(projName) {
+  if (!state.projectPreferences[projName]) state.projectPreferences[projName] = {};
+  const p = state.projectPreferences[projName];
+  if (!Array.isArray(p.priorAssessors)) p.priorAssessors = [];
+  if (!Array.isArray(p.suggestedAssessors)) p.suggestedAssessors = [];
+  if (!Array.isArray(p.topicTags)) p.topicTags = [];
+  if (typeof p.timePreferences !== 'object' || Array.isArray(p.timePreferences)) p.timePreferences = {};
+  if (typeof p.notes !== 'string') p.notes = '';
+  return p;
+}
+
 function renderPrefsTab() {
-  const hasData = state.projects.length > 0 && state.assessors.length > 0;
+  const projects = state.projects.filter(p => p.included);
+  const hasData = projects.length > 0 && state.assessors.length > 0;
   document.getElementById('prefs-no-data').style.display = hasData ? 'none' : '';
-  document.getElementById('prefs-main').style.display = hasData ? '' : 'none';
+  const cardsWrap = document.getElementById('prefs-cards');
+  cardsWrap.innerHTML = '';
   if (!hasData) return;
-
-  const sel = document.getElementById('prefs-project-select');
-  const current = sel.value;
-  sel.innerHTML = '<option value="">— Select project —</option>';
-  state.projects.filter(p => p.included).forEach(p => {
-    const opt = document.createElement('option');
-    opt.value = p.name;
-    opt.textContent = p.name;
-    sel.appendChild(opt);
-  });
-  if (current) sel.value = current;
-  onPrefsProjectChange();
-}
-
-function onPrefsProjectChange() {
-  const name = document.getElementById('prefs-project-select').value;
-  const section = document.getElementById('prefs-project-section');
-  if (!name) { section.style.display = 'none'; return; }
-  section.style.display = '';
-  document.getElementById('prefs-project-heading').textContent = name;
-
-  if (!state.projectPreferences[name]) {
-    state.projectPreferences[name] = { preferred: [], excluded: [] };
-  }
-  const prefs = state.projectPreferences[name];
-
-  const prefList = document.getElementById('prefs-preferred-list');
-  const exclList = document.getElementById('prefs-excluded-list');
-  prefList.innerHTML = '';
-  exclList.innerHTML = '';
-
-  state.assessors.forEach(a => {
-    const isPref = prefs.preferred.includes(a.name);
-    const isExcl = prefs.excluded.includes(a.name);
-
-    const prefDiv = document.createElement('div');
-    prefDiv.className = 'flex-row mb8';
-    prefDiv.innerHTML = `
-      <input type="checkbox" ${isPref ? 'checked' : ''} id="pref-${escAttr(a.name)}" style="accent-color:#5CB85C;"
-        onchange="onPrefChange('${escAttr(name)}', '${escAttr(a.name)}', 'preferred', this.checked)">
-      <label for="pref-${escAttr(a.name)}" style="font-weight:normal;cursor:pointer;">${escHtml(a.name)}</label>
-    `;
-    prefList.appendChild(prefDiv);
-
-    const exclDiv = document.createElement('div');
-    exclDiv.className = 'flex-row mb8';
-    exclDiv.innerHTML = `
-      <input type="checkbox" ${isExcl ? 'checked' : ''} id="excl-${escAttr(a.name)}" style="accent-color:#d9534f;"
-        onchange="onPrefChange('${escAttr(name)}', '${escAttr(a.name)}', 'excluded', this.checked)">
-      <label for="excl-${escAttr(a.name)}" style="font-weight:normal;cursor:pointer;">${escHtml(a.name)}</label>
-    `;
-    exclList.appendChild(exclDiv);
+  projects.forEach(proj => {
+    const prefs = ensurePref(proj.name);
+    cardsWrap.appendChild(buildPrefCard(proj, prefs));
   });
 }
 
-function onPrefChange(project, assessor, type, checked) {
-  if (!state.projectPreferences[project]) state.projectPreferences[project] = { preferred: [], excluded: [] };
-  const prefs = state.projectPreferences[project];
-  if (checked) {
-    if (!prefs[type].includes(assessor)) prefs[type].push(assessor);
-    // Remove from opposite
-    const opp = type === 'preferred' ? 'excluded' : 'preferred';
-    prefs[opp] = prefs[opp].filter(a => a !== assessor);
-  } else {
-    prefs[type] = prefs[type].filter(a => a !== assessor);
+function buildPrefCard(proj, prefs) {
+  const card = document.createElement('div');
+  card.className = 'pref-card';
+
+  // Header
+  const hdr = document.createElement('div');
+  hdr.className = 'pref-card-header';
+  const ttl = document.createElement('span');
+  ttl.className = 'pref-card-title';
+  ttl.textContent = proj.name;
+  const bdg = document.createElement('span');
+  bdg.className = 'badge ' + (String(proj.stage || '').toLowerCase().includes('eoi') ? 'badge-eoi' : 'badge-full');
+  bdg.textContent = proj.stage || 'Unknown';
+  hdr.append(ttl, bdg);
+  card.appendChild(hdr);
+
+  // Prior assessors
+  card.appendChild(makePrefSection('Prior assessors (continuity preferred)',
+    makeAssessorChips(proj.name, 'prior', prefs)));
+
+  // Suggested by investment team
+  card.appendChild(makePrefSection('Suggested by investment team',
+    makeAssessorChips(proj.name, 'suggested', prefs)));
+
+  // Topic tags
+  card.appendChild(makePrefSection('Topic tags',
+    makeTagChips(proj.name, prefs)));
+
+  // Time preferences
+  const timeWrap = document.createElement('div');
+  timeWrap.className = 'pref-section';
+  const timeLbl = document.createElement('label');
+  timeLbl.innerHTML = 'Time preferences <span class="text-muted" style="font-weight:normal;font-size:0.78rem;">' +
+    '(click to cycle: &#9744; Neutral &rarr; &#128992; Prefer not &rarr; &#128308; Hard no)</span>';
+  const timeContent = document.createElement('div');
+  timeContent.id = 'time-blocks-' + safeId(proj.name);
+  fillTimeBlocks(proj.name, prefs, timeContent);
+  timeWrap.append(timeLbl, timeContent);
+  card.appendChild(timeWrap);
+
+  // Notes
+  const notesWrap = document.createElement('div');
+  notesWrap.className = 'pref-section';
+  const notesLbl = document.createElement('label');
+  notesLbl.textContent = 'Notes';
+  const ta = document.createElement('textarea');
+  ta.rows = 3;
+  ta.style.cssText = 'width:100%;resize:vertical;';
+  ta.placeholder = "Any notes about this project's panel requirements...";
+  ta.value = prefs.notes;
+  ta.onchange = () => {
+    prefs.notes = ta.value;
+    log('Project pref: ' + proj.name + ' — notes updated');
+    scheduleSave();
+  };
+  notesWrap.append(notesLbl, ta);
+  card.appendChild(notesWrap);
+
+  return card;
+}
+
+function makePrefSection(labelText, contentEl) {
+  const sec = document.createElement('div');
+  sec.className = 'pref-section';
+  const lbl = document.createElement('label');
+  lbl.textContent = labelText;
+  sec.append(lbl, contentEl);
+  return sec;
+}
+
+function makeAssessorChips(projName, field, prefs) {
+  const arr = field === 'prior' ? prefs.priorAssessors : prefs.suggestedAssessors;
+  const container = document.createElement('div');
+  container.className = 'chip-container';
+  container.id = field + '-chips-' + safeId(projName);
+
+  arr.forEach((name, i) => {
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.appendChild(document.createTextNode(name + ' '));
+    const rm = document.createElement('span');
+    rm.className = 'chip-remove';
+    rm.textContent = '×';
+    rm.title = 'Remove';
+    rm.onclick = () => removePrefAssessor(projName, field, i);
+    chip.appendChild(rm);
+    container.appendChild(chip);
+  });
+
+  const avail = state.assessors.filter(a => a.name && !arr.includes(a.name));
+  if (avail.length) {
+    const sel = document.createElement('select');
+    sel.style.cssText = 'font-size:0.78rem;border:1px dashed #aaa;border-radius:12px;padding:2px 6px;background:#fff;color:#555;cursor:pointer;';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = '+ add assessor';
+    sel.appendChild(placeholder);
+    avail.forEach(a => {
+      const opt = document.createElement('option');
+      opt.value = a.name;
+      opt.textContent = a.name;
+      sel.appendChild(opt);
+    });
+    sel.onchange = function() { if (this.value) addPrefAssessor(projName, field, this.value); };
+    container.appendChild(sel);
   }
-  log(`Project preference updated: ${project} — ${assessor} → ${type} = ${checked}`);
+  return container;
+}
+
+function makeTagChips(projName, prefs) {
+  const container = document.createElement('div');
+  container.className = 'chip-container';
+  container.id = 'tag-chips-' + safeId(projName);
+
+  prefs.topicTags.forEach((tag, i) => {
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.appendChild(document.createTextNode(tag + ' '));
+    const rm = document.createElement('span');
+    rm.className = 'chip-remove';
+    rm.textContent = '×';
+    rm.onclick = () => removePrefTag(projName, i);
+    chip.appendChild(rm);
+    container.appendChild(chip);
+  });
+
+  const avail = state.tags.filter(t => !prefs.topicTags.includes(t));
+  if (avail.length) {
+    const sel = document.createElement('select');
+    sel.style.cssText = 'font-size:0.78rem;border:1px dashed #aaa;border-radius:12px;padding:2px 6px;background:#fff;color:#555;cursor:pointer;';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = '+ add tag';
+    sel.appendChild(placeholder);
+    avail.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t;
+      opt.textContent = t;
+      sel.appendChild(opt);
+    });
+    sel.onchange = function() { if (this.value) addPrefTag(projName, this.value); };
+    container.appendChild(sel);
+  }
+  return container;
+}
+
+function fillTimeBlocks(projName, prefs, container) {
+  container.innerHTML = '';
+  if (!state.panelDate) {
+    const msg = document.createElement('p');
+    msg.className = 'text-muted';
+    msg.style.fontSize = '0.82rem';
+    msg.textContent = 'Set the Panel Date in Data Setup to enable time preferences.';
+    container.appendChild(msg);
+    return;
+  }
+
+  const days = getPanelDays();
+  const mainDate = state.panelDate;
+  const stateLabels = {
+    neutral: 'Neutral — click to set Prefer Not',
+    avoid: 'Prefer Not — click to set Hard No',
+    'hard-no': 'Hard No — click to clear'
+  };
+
+  days.forEach(day => {
+    let startHour = 9, endHour = 17;
+    if (day !== mainDate) {
+      const bd = new Date(mainDate + 'T12:00:00'); bd.setDate(bd.getDate() - 1);
+      const ad = new Date(mainDate + 'T12:00:00'); ad.setDate(ad.getDate() + 1);
+      const dc = state.additionalDays.find(d =>
+        (d.type === 'before' && day === bd.toISOString().slice(0,10)) ||
+        (d.type === 'after'  && day === ad.toISOString().slice(0,10))
+      );
+      if (dc) { startHour = dc.startHour; endHour = dc.endHour; }
+    }
+
+    const grp = document.createElement('div');
+    grp.className = 'time-blocks-group';
+    const dl = document.createElement('div');
+    dl.className = 'time-blocks-day-label';
+    dl.textContent = formatDateNice(day);
+    grp.appendChild(dl);
+
+    const row = document.createElement('div');
+    row.className = 'time-blocks-row';
+
+    for (let h = startHour; h < endHour; h++) {
+      const key = day + '_' + String(h).padStart(2,'0') + ':00';
+      const val = prefs.timePreferences[key] || 'neutral';
+      const label = h < 12 ? h + 'am' : h === 12 ? '12pm' : (h - 12) + 'pm';
+      const block = document.createElement('span');
+      block.className = 'time-block ' + val;
+      block.textContent = label;
+      block.title = stateLabels[val];
+      block.onclick = () => {
+        const cur = prefs.timePreferences[key] || 'neutral';
+        const next = { neutral: 'avoid', avoid: 'hard-no', 'hard-no': 'neutral' };
+        const nv = next[cur];
+        if (nv === 'neutral') delete prefs.timePreferences[key];
+        else prefs.timePreferences[key] = nv;
+        block.className = 'time-block ' + nv;
+        block.title = stateLabels[nv];
+        log('Project pref: ' + projName + ' — time block ' + key + ' → ' + nv);
+        scheduleSave();
+      };
+      row.appendChild(block);
+    }
+
+    grp.appendChild(row);
+    container.appendChild(grp);
+  });
+}
+
+function addPrefAssessor(projName, field, name) {
+  const prefs = ensurePref(projName);
+  const arr = field === 'prior' ? prefs.priorAssessors : prefs.suggestedAssessors;
+  if (!arr.includes(name)) {
+    arr.push(name);
+    const label = field === 'prior' ? 'prior assessor' : 'suggested by investment team';
+    log('Project pref: ' + projName + ' — ' + label + ' added: ' + name);
+    scheduleSave();
+  }
+  const existing = document.getElementById(field + '-chips-' + safeId(projName));
+  if (existing) existing.replaceWith(makeAssessorChips(projName, field, prefs));
+}
+
+function removePrefAssessor(projName, field, idx) {
+  const prefs = ensurePref(projName);
+  const arr = field === 'prior' ? prefs.priorAssessors : prefs.suggestedAssessors;
+  const name = arr[idx];
+  arr.splice(idx, 1);
+  log('Project pref: ' + projName + ' — assessor removed from ' + field + ': ' + name);
   scheduleSave();
-  // Re-render to sync checkboxes
-  onPrefsProjectChange();
+  const existing = document.getElementById(field + '-chips-' + safeId(projName));
+  if (existing) existing.replaceWith(makeAssessorChips(projName, field, prefs));
+}
+
+function addPrefTag(projName, tag) {
+  const prefs = ensurePref(projName);
+  if (!prefs.topicTags.includes(tag)) {
+    prefs.topicTags.push(tag);
+    log('Project pref: ' + projName + ' — topic tag added: ' + tag);
+    scheduleSave();
+  }
+  const existing = document.getElementById('tag-chips-' + safeId(projName));
+  if (existing) existing.replaceWith(makeTagChips(projName, prefs));
+}
+
+function removePrefTag(projName, idx) {
+  const prefs = ensurePref(projName);
+  const tag = prefs.topicTags[idx];
+  prefs.topicTags.splice(idx, 1);
+  log('Project pref: ' + projName + ' — topic tag removed: ' + tag);
+  scheduleSave();
+  const existing = document.getElementById('tag-chips-' + safeId(projName));
+  if (existing) existing.replaceWith(makeTagChips(projName, prefs));
 }
 
 // ============================================================
