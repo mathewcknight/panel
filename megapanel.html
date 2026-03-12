@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MEGAPANEL — ARENA Panel Scheduler</title>
+<title>MEGAPANEL v0.3 — ARENA Panel Scheduler</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://unpkg.com/docx@7.8.2/build/index.js"></script>
 <style>
@@ -238,7 +238,7 @@
 <!-- HEADER -->
 <div id="header">
   <div id="header-left">
-    <div id="app-title">MEGAPANEL</div>
+    <div id="app-title">MEGAPANEL <span style="font-size:0.75rem;font-weight:400;letter-spacing:0;opacity:0.6;">v0.3</span></div>
     <div id="folder-path" class="text-muted">No folder selected</div>
   </div>
   <div id="header-right">
@@ -348,10 +348,9 @@
         <table id="assessor-table">
           <thead>
             <tr>
-              <th style="width:200px;">Name</th>
+              <th style="width:220px;">Name</th>
               <th>Topics</th>
-              <th style="width:130px;">Role</th>
-              <th style="width:60px;">Delete</th>
+              <th style="width:60px;">Del</th>
             </tr>
           </thead>
           <tbody id="assessor-tbody"></tbody>
@@ -364,6 +363,7 @@
         <div>
           <label>Upload pipeline export (.csv or .xlsx)</label>
           <input type="file" id="project-file-input" accept=".csv,.xlsx" onchange="onProjectFileUpload(event)" style="width:auto;">
+          <p class="text-muted" style="margin-top:5px;font-size:0.8rem;">Expected columns: <strong>Project Name</strong>, <strong>Stage</strong>. Other columns are preserved but not required.</p>
         </div>
       </div>
       <div id="project-count-label" class="project-count" style="display:none;"></div>
@@ -440,15 +440,15 @@
     <!-- OUTPUT TAB -->
     <div class="tab-panel" id="panel-output">
       <h2>Output</h2>
-      <div class="flex-row mb16">
-        <button class="btn btn-green" onclick="generateSchedule()" style="font-size:1rem;padding:10px 24px;">Generate Schedule</button>
+      <div style="text-align:center;margin-bottom:20px;">
+        <button class="btn btn-green" onclick="onGenerateAgendaClick()" style="font-size:1.1rem;padding:14px 36px;font-weight:700;">⚡ Generate Agenda</button>
       </div>
-      <div id="output-result" style="display:none;">
-        <div class="banner banner-green" id="output-banner"></div>
-        <div id="output-table-wrap" style="margin-top:16px; overflow-x:auto;"></div>
+      <div id="output-validation-error" class="banner banner-orange" style="display:none;"></div>
+      <div id="output-agenda-wrap" style="display:none;">
+        <div class="banner banner-green" id="output-banner" style="margin-bottom:16px;"></div>
+        <div id="output-table-wrap" style="overflow-x:auto;"></div>
         <div class="flex-row mt16">
-          <button class="btn btn-blue" onclick="exportExcel()">Export to Excel (.xlsx)</button>
-          <button class="btn btn-ghost" onclick="exportWord()">Export to Word (.docx)</button>
+          <button class="btn btn-ghost" onclick="exportWord()">⬇ Download as Word Doc (.docx)</button>
         </div>
       </div>
     </div>
@@ -491,6 +491,7 @@ let state = {
   projects: [],
   availability: {},
   projectPreferences: {},
+  agenda: [],
   prepNotes: '',
   prepChecklist: []
 };
@@ -854,12 +855,6 @@ function renderAssessorTable() {
     tr.innerHTML = `
       <td><input type="text" value="${escHtml(assessor.name)}" placeholder="Assessor name" style="border:none;outline:none;width:100%;font-size:0.88rem;" onchange="onAssessorNameChange(${idx}, this.value)"></td>
       <td><div class="chip-container" id="chip-container-${idx}"></div></td>
-      <td>
-        <select style="border:none;outline:none;width:100%;font-size:0.88rem;" onchange="onAssessorRoleChange(${idx}, this.value)">
-          <option value="Internal" ${assessor.role === 'Internal' ? 'selected' : ''}>Internal</option>
-          <option value="External" ${assessor.role === 'External' ? 'selected' : ''}>External</option>
-        </select>
-      </td>
       <td><button class="btn btn-danger btn-xs" onclick="deleteAssessor(${idx})">🗑</button></td>
     `;
     tbody.appendChild(tr);
@@ -919,12 +914,6 @@ function onAssessorNameChange(idx, value) {
   updateTabIndicators();
 }
 
-function onAssessorRoleChange(idx, value) {
-  state.assessors[idx].role = value;
-  saveAssessorsFile();
-  scheduleSave();
-  log(`Assessor role updated: ${state.assessors[idx].name} → ${value}`);
-}
 
 function addAssessorTopic(idx, topic) {
   if (!state.assessors[idx].topics.includes(topic)) {
@@ -1017,6 +1006,21 @@ async function onProjectFileUpload(event) {
       const wb = XLSX.read(buf, { type: 'array' });
       const ws = wb.Sheets[wb.SheetNames[0]];
       rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+    }
+
+    if (!rows.length) {
+      log('Project file is empty or could not be parsed');
+      alert('The file appears to be empty or could not be parsed.');
+      return;
+    }
+    const headers = Object.keys(rows[0] || {});
+    const knownNameCols = ['Project Name', 'Name', 'name', 'project_name'];
+    const knownStageCols = ['Stage', 'stage', 'Application Stage'];
+    if (!headers.some(h => knownNameCols.includes(h))) {
+      log('⚠ Column warning: No recognised "Project Name" column. Found: ' + headers.join(', ') + '. Using first column.');
+    }
+    if (!headers.some(h => knownStageCols.includes(h))) {
+      log('⚠ Column warning: No "Stage" column found — stage will be blank for all projects.');
     }
 
     const totalDetected = rows.length;
@@ -1500,139 +1504,455 @@ function removePrefTag(projName, idx) {
 }
 
 // ============================================================
-// OUTPUT TAB
+// OUTPUT TAB — STAGE 5 SCHEDULING ENGINE
 // ============================================================
 function renderOutputTab() {
-  // Nothing to auto-render here
+  const hasAgenda = Array.isArray(state.agenda) && state.agenda.length > 0;
+  document.getElementById('output-agenda-wrap').style.display = hasAgenda ? '' : 'none';
+  if (hasAgenda) renderAgendaTable();
 }
 
-function generateSchedule() {
+function onGenerateAgendaClick() {
+  const issues = validateScheduleInputs();
+  const errEl = document.getElementById('output-validation-error');
+  if (issues.length) {
+    errEl.style.display = '';
+    errEl.innerHTML = '<strong>Cannot generate agenda:</strong><ul style="margin:8px 0 0 20px;">' +
+      issues.map(i => '<li>' + escHtml(i) + '</li>').join('') + '</ul>';
+    return;
+  }
+  errEl.style.display = 'none';
+  showConfirm('Generate Agenda',
+    'Generate the agenda? This will overwrite any manual edits to the current agenda.',
+    generateAgenda);
+}
+
+function validateScheduleInputs() {
+  const issues = [];
   const projects = state.projects.filter(p => p.included);
-  if (!projects.length) { alert('No projects selected.'); return; }
-  if (!state.panelDate) { alert('Please set the panel date first.'); return; }
+  if (!state.panelDate) issues.push('Panel date is not set.');
+  if (!projects.length) issues.push('No projects are selected.');
+  if (!state.assessors.length) issues.push('No assessors in the list.');
+  const noTags = projects.filter(p => {
+    const prefs = state.projectPreferences[p.name];
+    return !prefs || !Array.isArray(prefs.topicTags) || !prefs.topicTags.length;
+  });
+  if (noTags.length) {
+    issues.push(noTags.length + ' project(s) have no topic tags — assign tags in Project Preferences: ' +
+      noTags.map(p => p.name).join(', '));
+  }
+  projects.forEach(proj => {
+    const prefs = state.projectPreferences[proj.name] || {};
+    const tags = prefs.topicTags || [];
+    const qualified = state.assessors.filter(a => !tags.length || a.topics.some(t => tags.includes(t)));
+    if (qualified.length < 3) {
+      issues.push('"' + proj.name + '" has only ' + qualified.length +
+        ' qualified assessor(s) (need ≥3). Add more assessors with matching topic tags.');
+    }
+  });
+  return issues;
+}
 
-  log(`Generating schedule for ${projects.length} projects`);
+// ── Time helpers ──────────────────────────────────────────────
+function minToHHMM(m) {
+  return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+}
+function timeToMin(hhmm) {
+  const parts = String(hhmm || '00:00').split(':').map(Number);
+  return (parts[0] || 0) * 60 + (parts[1] || 0);
+}
+function getDayConfig(day) {
+  if (!state.panelDate) return null;
+  const bd = new Date(state.panelDate + 'T12:00:00'); bd.setDate(bd.getDate() - 1);
+  const ad = new Date(state.panelDate + 'T12:00:00'); ad.setDate(ad.getDate() + 1);
+  return state.additionalDays.find(d =>
+    (d.type === 'before' && day === bd.toISOString().slice(0, 10)) ||
+    (d.type === 'after'  && day === ad.toISOString().slice(0, 10))
+  ) || null;
+}
 
+// ── Build slot template for one day ───────────────────────────
+function buildDaySchedule(day, startHour, endHour, isMainDay) {
+  const breakDefs = isMainDay ? [
+    { startMin: 10 * 60 + 30, endMin: 10 * 60 + 45, label: 'Morning Tea' },
+    { startMin: 12 * 60 + 30, endMin: 13 * 60 + 15, label: 'Lunch' },
+    { startMin: 15 * 60,      endMin: 15 * 60 + 15, label: 'Afternoon Tea' }
+  ] : [];
+  const usedBreaks = new Set();
+  const entries = [];
+  let cur = startHour * 60;
+  const end = endHour * 60;
+
+  while (cur < end) {
+    const exactBrk = breakDefs.find(b => b.startMin === cur && !usedBreaks.has(b.label));
+    if (exactBrk) {
+      entries.push({ type: 'break', day, startMin: exactBrk.startMin, endMin: exactBrk.endMin,
+        startTime: minToHHMM(exactBrk.startMin), endTime: minToHHMM(exactBrk.endMin), label: exactBrk.label });
+      usedBreaks.add(exactBrk.label);
+      cur = exactBrk.endMin;
+      continue;
+    }
+    const slotEnd = cur + 45;
+    if (slotEnd > end) break;
+    const intruding = breakDefs
+      .filter(b => !usedBreaks.has(b.label) && b.startMin > cur && b.startMin < slotEnd)
+      .sort((a, b) => a.startMin - b.startMin)[0];
+    if (intruding) {
+      entries.push({ type: 'break', day, startMin: intruding.startMin, endMin: intruding.endMin,
+        startTime: minToHHMM(intruding.startMin), endTime: minToHHMM(intruding.endMin), label: intruding.label });
+      usedBreaks.add(intruding.label);
+      cur = intruding.endMin;
+      continue;
+    }
+    entries.push({ type: 'slot', day, startMin: cur, endMin: slotEnd,
+      startTime: minToHHMM(cur), endTime: minToHHMM(slotEnd),
+      project: null, stage: null, assessors: [], backups: [], flags: [] });
+    cur = slotEnd;
+  }
+  return entries;
+}
+
+// ── Assessor availability check ───────────────────────────────
+function isAssessorAvailable(name, day, startMin, endMin) {
+  return !(state.availability[name] || []).some(b => {
+    if (b.date !== day) return false;
+    const bS = timeToMin(b.startTime), bE = timeToMin(b.endTime);
+    return bS < endMin && bE > startMin;
+  });
+}
+
+// ── Order projects: most constrained first ────────────────────
+function orderByConstraint(projects, slots) {
+  return [...projects].sort((a, b) => {
+    const ap = state.projectPreferences[a.name] || {};
+    const bp = state.projectPreferences[b.name] || {};
+    const at = ap.topicTags || [], bt = bp.topicTags || [];
+    const hardNos = (prefs) => slots.filter(s => {
+      const key = s.day + '_' + s.startTime.slice(0, 2) + ':00';
+      return ((prefs.timePreferences || {})[key] === 'hard-no');
+    }).length;
+    const qualified = (tags) => state.assessors.filter(a =>
+      !tags.length || a.topics.some(t => tags.includes(t))).length;
+    const aScore = hardNos(ap) * 10 - qualified(at);
+    const bScore = hardNos(bp) * 10 - qualified(bt);
+    return bScore - aScore;
+  });
+}
+
+// ── Pick best assessors for a slot ───────────────────────────
+function pickAssessors(proj, prefs, slot, assessorLoad) {
+  const tags = prefs.topicTags || [];
+  const eligible = state.assessors.filter(a => {
+    if (!a.name) return false;
+    if (tags.length && !a.topics.some(t => tags.includes(t))) return false;
+    if (!isAssessorAvailable(a.name, slot.day, slot.startMin, slot.endMin)) return false;
+    return true;
+  });
+  const scored = eligible.map(a => {
+    let score = 0;
+    if ((prefs.suggestedAssessors || []).includes(a.name)) score += 5;
+    if ((prefs.priorAssessors || []).includes(a.name)) score += 3;
+    score -= (assessorLoad[a.name] || 0);
+    return { name: a.name, score };
+  }).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  if (scored.length) {
+    log('    Candidates: ' + scored.slice(0, 6).map(s => s.name + '(' + s.score + ')').join(', '));
+  }
+  return { primary: scored.slice(0, 3).map(s => s.name), backups: scored.slice(3, 5).map(s => s.name) };
+}
+
+// ── Main engine ───────────────────────────────────────────────
+function generateAgenda() {
+  const projects = state.projects.filter(p => p.included);
   const days = getPanelDays();
-  const SLOT_MIN = 45;
-  const START_HOUR = 9;
-  const END_HOUR = 17;
+  log('=== SCHEDULING ENGINE START ===');
+  log('Projects: ' + projects.length + ', Days: ' + days.join(', '));
 
-  let schedule = [];
-  let currentDayIdx = 0;
-  let currentMinute = START_HOUR * 60;
-  let breakAdded = false;
+  // Build slot template across all days
+  const template = [];
+  days.forEach(day => {
+    const isMain = day === state.panelDate;
+    let sh = 9, eh = 17;
+    if (!isMain) { const dc = getDayConfig(day); if (dc) { sh = dc.startHour; eh = dc.endHour; } }
+    template.push(...buildDaySchedule(day, sh, eh, isMain));
+  });
 
-  projects.forEach((proj, i) => {
-    if (currentDayIdx >= days.length) {
-      schedule.push({ day: 'Overflow', time: 'N/A', project: proj.name, stage: proj.stage });
+  const projSlots = template.filter(s => s.type === 'slot');
+  log('Project slots available: ' + projSlots.length);
+
+  // Order projects by constraint level
+  const ordered = orderByConstraint(projects, projSlots);
+  log('Scheduling order: ' + ordered.map(p => p.name).join(' → '));
+
+  const load = {};
+  state.assessors.forEach(a => { load[a.name] = 0; });
+  const overflow = [];
+
+  ordered.forEach(proj => {
+    const prefs = ensurePref(proj.name);
+    log('--- ' + proj.name + ' ---');
+    let chosen = null;
+
+    for (const slot of projSlots) {
+      if (slot.project) continue;
+      const key = slot.day + '_' + slot.startTime.slice(0, 2) + ':00';
+      const pref = (prefs.timePreferences || {})[key];
+      if (pref === 'hard-no') { log('  Skip ' + slot.startTime + ' on ' + slot.day + ': Hard No'); continue; }
+      chosen = slot;
+      if (pref === 'avoid') {
+        log('  ⚠ Soft-avoid slot ' + slot.startTime + ' on ' + slot.day + ' — no better alternative');
+        chosen.flags = [...(chosen.flags || []), 'soft-avoid'];
+      }
+      break;
+    }
+
+    if (!chosen) { overflow.push(proj.name); log('  OVERFLOW — no valid slot'); return; }
+
+    chosen.project = proj.name;
+    chosen.stage = proj.stage || '';
+    const { primary, backups } = pickAssessors(proj, prefs, chosen, load);
+    chosen.assessors = primary;
+    chosen.backups = backups;
+    [...primary, ...backups].forEach(n => { load[n] = (load[n] || 0) + 1; });
+    log('  → ' + chosen.startTime + '–' + chosen.endTime + ' on ' + chosen.day);
+    log('  Primary: ' + (primary.join(', ') || '(none assigned)'));
+    log('  Backups: ' + (backups.join(', ') || '(none)'));
+  });
+
+  state.agenda = template;
+  const placed = ordered.length - overflow.length;
+  log('=== DONE: ' + placed + '/' + ordered.length + ' scheduled ===');
+  if (overflow.length) log('Overflow (unscheduled): ' + overflow.join(', '));
+
+  document.getElementById('output-agenda-wrap').style.display = '';
+  document.getElementById('output-banner').textContent =
+    'Agenda generated: ' + placed + ' of ' + ordered.length + ' project(s) scheduled across ' + days.length + ' day(s).' +
+    (overflow.length ? '  ⚠ ' + overflow.length + ' project(s) could not be placed (insufficient slots).' : '');
+  renderAgendaTable();
+  scheduleSave();
+}
+
+// ── Render agenda table ───────────────────────────────────────
+function renderAgendaTable() {
+  const wrap = document.getElementById('output-table-wrap');
+  if (!state.agenda || !state.agenda.length) { wrap.innerHTML = ''; return; }
+
+  const includedProjects = state.projects.filter(p => p.included);
+  const table = document.createElement('table');
+  table.style.minWidth = '900px';
+
+  const thead = document.createElement('thead');
+  thead.innerHTML = '<tr>' +
+    '<th style="width:110px;">Time</th>' +
+    '<th>Project</th>' +
+    '<th style="width:80px;">Stage</th>' +
+    '<th>Assessor 1</th><th>Assessor 2</th><th>Assessor 3</th>' +
+    '<th>Backups</th></tr>';
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  let lastDay = null;
+
+  state.agenda.forEach((slot, idx) => {
+    if (slot.type === 'break') {
+      const tr = document.createElement('tr');
+      tr.style.background = '#f0f0f0';
+      const tc = document.createElement('td');
+      tc.style.cssText = 'font-size:0.78rem;color:#888;white-space:nowrap;font-weight:600;';
+      tc.textContent = slot.startTime + '–' + slot.endTime;
+      const lc = document.createElement('td');
+      lc.colSpan = 6;
+      lc.style.cssText = 'text-align:center;color:#666;font-size:0.82rem;font-style:italic;';
+      lc.textContent = slot.label;
+      tr.append(tc, lc);
+      tbody.appendChild(tr);
       return;
     }
 
-    const dayEnd = END_HOUR * 60;
-    // Add morning break at 10:45 (after 2 slots)
-    if (!breakAdded && currentMinute >= 10 * 60 + 45 && currentMinute < 12 * 60) {
-      breakAdded = true;
+    // Day header row when day changes
+    if (slot.day !== lastDay) {
+      lastDay = slot.day;
+      const dr = document.createElement('tr');
+      dr.style.background = '#e8f0f8';
+      const dc = document.createElement('td');
+      dc.colSpan = 7;
+      dc.style.cssText = 'font-weight:700;color:#005BAA;padding:6px 10px;font-size:0.83rem;';
+      dc.textContent = formatDateNice(slot.day);
+      dr.appendChild(dc);
+      tbody.appendChild(dr);
     }
 
-    if (currentMinute + SLOT_MIN > dayEnd) {
-      currentDayIdx++;
-      currentMinute = START_HOUR * 60;
-      breakAdded = false;
-      if (currentDayIdx >= days.length) {
-        schedule.push({ day: 'Overflow', time: 'N/A', project: proj.name, stage: proj.stage });
-        return;
+    const tr = document.createElement('tr');
+
+    // Time
+    const timeCell = document.createElement('td');
+    timeCell.style.cssText = 'font-size:0.8rem;color:#555;white-space:nowrap;';
+    timeCell.textContent = slot.startTime + '–' + slot.endTime;
+    tr.appendChild(timeCell);
+
+    // Project
+    const projCell = document.createElement('td');
+    if (slot.flags && slot.flags.includes('soft-avoid')) {
+      const w = document.createElement('span');
+      w.textContent = '⚠ ';
+      w.title = 'Project preference: avoid this time slot';
+      w.style.color = '#F47920';
+      projCell.appendChild(w);
+    }
+    projCell.appendChild(buildProjectSelect(slot, idx, includedProjects));
+    tr.appendChild(projCell);
+
+    // Stage
+    const stageCell = document.createElement('td');
+    if (slot.project && slot.stage) {
+      const bdg = document.createElement('span');
+      bdg.className = 'badge ' + (String(slot.stage).toLowerCase().includes('eoi') ? 'badge-eoi' : 'badge-full');
+      bdg.textContent = slot.stage;
+      stageCell.appendChild(bdg);
+    }
+    tr.appendChild(stageCell);
+
+    // Assessors 1–3
+    for (let ai = 0; ai < 3; ai++) {
+      const ac = document.createElement('td');
+      if (slot.project) appendAssessorSelect(ac, slot, idx, ai, (slot.assessors || [])[ai] || '', 'assessors');
+      tr.appendChild(ac);
+    }
+
+    // Backups
+    const bc = document.createElement('td');
+    if (slot.project) {
+      const backups = slot.backups || [];
+      const count = Math.max(backups.length, 1);
+      for (let bi = 0; bi < count; bi++) {
+        if (bi > 0) bc.appendChild(document.createElement('br'));
+        appendAssessorSelect(bc, slot, idx, bi, backups[bi] || '', 'backups');
       }
     }
+    tr.appendChild(bc);
+    tbody.appendChild(tr);
+  });
 
-    const hh = String(Math.floor(currentMinute / 60)).padStart(2, '0');
-    const mm = String(currentMinute % 60).padStart(2, '0');
-    const endMin = currentMinute + SLOT_MIN;
-    const hh2 = String(Math.floor(endMin / 60)).padStart(2, '0');
-    const mm2 = String(endMin % 60).padStart(2, '0');
+  table.appendChild(tbody);
+  wrap.innerHTML = '';
+  wrap.appendChild(table);
+}
 
-    schedule.push({
-      day: formatDateNice(days[currentDayIdx]),
-      time: `${hh}:${mm} – ${hh2}:${mm2}`,
-      project: proj.name,
-      stage: proj.stage
-    });
+function buildProjectSelect(slot, idx, includedProjects) {
+  const sel = document.createElement('select');
+  sel.style.cssText = 'width:100%;border:none;outline:none;font-size:0.85rem;background:transparent;cursor:pointer;';
+  const empty = document.createElement('option');
+  empty.value = ''; empty.textContent = '(unassigned)';
+  sel.appendChild(empty);
+  includedProjects.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.name; opt.textContent = p.name;
+    opt.selected = p.name === slot.project;
+    sel.appendChild(opt);
+  });
+  sel.onchange = function() {
+    state.agenda[idx].project = this.value || null;
+    const p = state.projects.find(p => p.name === this.value);
+    state.agenda[idx].stage = p ? p.stage : '';
+    state.agenda[idx].assessors = []; state.agenda[idx].backups = [];
+    log('Agenda override: slot ' + idx + ' project → ' + (this.value || '(unassigned)'));
+    scheduleSave(); renderAgendaTable();
+  };
+  return sel;
+}
 
-    currentMinute += SLOT_MIN;
+function appendAssessorSelect(cell, slot, slotIdx, position, currentVal, field) {
+  const prefs = slot.project ? ensurePref(slot.project) : {};
+  const tags = prefs.topicTags || [];
 
-    // 15 min break after every 4th slot
-    if ((i + 1) % 4 === 0) currentMinute += 15;
-    // 45 min lunch break after slot 4 if > 12:00
-    if (currentMinute >= 12 * 60 && !breakAdded) {
-      currentMinute += 45;
-      breakAdded = true;
+  // Constraint check before rendering
+  if (currentVal) {
+    const violations = [];
+    const assessor = state.assessors.find(a => a.name === currentVal);
+    if (assessor && tags.length && !assessor.topics.some(t => tags.includes(t))) violations.push('tag mismatch');
+    if (!isAssessorAvailable(currentVal, slot.day, slot.startMin, slot.endMin)) violations.push('unavailable in this slot');
+    const key = slot.day + '_' + slot.startTime.slice(0, 2) + ':00';
+    if ((prefs.timePreferences || {})[key] === 'hard-no') violations.push('hard-no time block');
+    if (violations.length) {
+      const w = document.createElement('span');
+      w.textContent = '⚠ '; w.title = violations.join(', ');
+      w.style.cssText = 'color:#F47920;font-weight:bold;';
+      cell.appendChild(w);
     }
+  }
+
+  const sel = document.createElement('select');
+  sel.style.cssText = 'width:100%;border:none;outline:none;font-size:0.82rem;background:transparent;cursor:pointer;';
+  const empty = document.createElement('option');
+  empty.value = ''; empty.textContent = '—';
+  sel.appendChild(empty);
+  state.assessors.filter(a => a.name).forEach(a => {
+    const opt = document.createElement('option');
+    opt.value = a.name; opt.textContent = a.name;
+    opt.selected = a.name === currentVal;
+    sel.appendChild(opt);
   });
-
-  window._generatedSchedule = schedule;
-
-  const result = document.getElementById('output-result');
-  result.style.display = '';
-  document.getElementById('output-banner').textContent = `Schedule generated: ${schedule.filter(s => s.day !== 'Overflow').length} projects scheduled across ${days.length} day(s).`;
-
-  const wrap = document.getElementById('output-table-wrap');
-  let html = '<table><thead><tr><th>Day</th><th>Time Slot</th><th>Project</th><th>Stage</th></tr></thead><tbody>';
-  schedule.forEach(s => {
-    const rowStyle = s.day === 'Overflow' ? 'style="background:#fff3e0;"' : '';
-    html += `<tr ${rowStyle}><td>${escHtml(s.day)}</td><td>${escHtml(s.time)}</td><td>${escHtml(s.project)}</td><td><span class="badge ${s.stage.toLowerCase().includes('eoi') ? 'badge-eoi' : 'badge-full'}">${escHtml(s.stage)}</span></td></tr>`;
-  });
-  html += '</tbody></table>';
-  wrap.innerHTML = html;
-
-  log(`Schedule generated: ${schedule.length} slots`);
+  if (currentVal) sel.value = currentVal;
+  sel.onchange = function() {
+    if (field === 'assessors') {
+      if (!state.agenda[slotIdx].assessors) state.agenda[slotIdx].assessors = [];
+      state.agenda[slotIdx].assessors[position] = this.value;
+    } else {
+      if (!state.agenda[slotIdx].backups) state.agenda[slotIdx].backups = [];
+      state.agenda[slotIdx].backups[position] = this.value;
+    }
+    log('Agenda override: slot ' + slotIdx + ' ' + field + '[' + position + '] → ' + this.value);
+    scheduleSave(); renderAgendaTable();
+  };
+  cell.appendChild(sel);
 }
 
-function exportExcel() {
-  if (!window._generatedSchedule) { alert('Generate schedule first.'); return; }
-  const ws = XLSX.utils.json_to_sheet(window._generatedSchedule);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Schedule');
-  XLSX.writeFile(wb, 'MEGAPANEL_Schedule.xlsx');
-  log('Schedule exported to Excel');
-}
-
+// ── Word export ───────────────────────────────────────────────
 async function exportWord() {
-  if (!window._generatedSchedule) { alert('Generate schedule first.'); return; }
+  if (!state.agenda || !state.agenda.length) { alert('Generate the agenda first.'); return; }
   try {
-    const { Document, Paragraph, Table, TableRow, TableCell, TextRun, Packer, WidthType, AlignmentType } = docx;
+    const { Document, Paragraph, Table, TableRow, TableCell, TextRun, Packer, WidthType } = docx;
+    const mkCell = (text, opts = {}) =>
+      new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: String(text || ''), ...opts })] })] });
+
     const rows = [
-      new TableRow({
-        children: ['Day','Time Slot','Project','Stage'].map(h =>
-          new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: h, bold: true })] })] })
-        )
-      }),
-      ...window._generatedSchedule.map(s =>
-        new TableRow({
-          children: [s.day, s.time, s.project, s.stage].map(v =>
-            new TableCell({ children: [new Paragraph(v)] })
-          )
-        })
-      )
+      new TableRow({ children: ['Time','Project','Stage','Assessor 1','Assessor 2','Assessor 3','Backups']
+        .map(h => mkCell(h, { bold: true })) })
     ];
 
-    const doc = new Document({
-      sections: [{
-        children: [
-          new Paragraph({ children: [new TextRun({ text: 'MEGAPANEL Schedule', bold: true, size: 32 })] }),
-          new Paragraph(''),
-          new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } })
-        ]
-      }]
+    state.agenda.forEach(slot => {
+      if (slot.type === 'break') {
+        rows.push(new TableRow({ children: [
+          mkCell(slot.startTime + '–' + slot.endTime),
+          new TableCell({ columnSpan: 6, children: [
+            new Paragraph({ children: [new TextRun({ text: slot.label, italics: true, color: '888888' })] })
+          ]})
+        ]}));
+      } else {
+        const a = slot.assessors || [];
+        rows.push(new TableRow({ children: [
+          mkCell(slot.startTime + '–' + slot.endTime),
+          mkCell(slot.project || ''),
+          mkCell(slot.stage || ''),
+          mkCell(a[0] || ''), mkCell(a[1] || ''), mkCell(a[2] || ''),
+          mkCell((slot.backups || []).filter(Boolean).join(', '))
+        ]}));
+      }
     });
+
+    const doc = new Document({ sections: [{ children: [
+      new Paragraph({ children: [new TextRun({ text: 'MEGAPANEL — Panel Agenda', bold: true, size: 32 })] }),
+      new Paragraph({ children: [new TextRun({ text: 'Panel date: ' + (state.panelDate || ''), size: 22, color: '555555' })] }),
+      new Paragraph(''),
+      new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } })
+    ]}]});
 
     const buf = await Packer.toBlob(doc);
     const url = URL.createObjectURL(buf);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = 'MEGAPANEL_Schedule.docx';
-    a.click();
+    a.href = url; a.download = 'MEGAPANEL_Agenda.docx'; a.click();
     URL.revokeObjectURL(url);
-    log('Schedule exported to Word');
+    log('Agenda exported to Word (.docx)');
   } catch (e) {
     log('Word export error: ' + e.message);
     alert('Word export error: ' + e.message);
@@ -1710,6 +2030,7 @@ function newPanelConfirm() {
         projects: [],
         availability: {},
         projectPreferences: {},
+        agenda: [],
         prepNotes: '',
         prepChecklist: []
       };
@@ -1767,6 +2088,7 @@ function renderAll() {
   renderAssessorTable();
   renderProjectChecklist();
   updateTabIndicators();
+  renderOutputTab();
   renderPrepTab();
   log('UI fully rendered from state');
 }
