@@ -456,12 +456,13 @@
     <!-- PREPARATION TAB -->
     <div class="tab-panel" id="panel-preparation">
       <h2>Preparation</h2>
-      <h3>Preparation Checklist</h3>
-      <div id="prep-checklist-wrap"></div>
-      <button class="btn btn-teal btn-sm mt8" onclick="addPrepItem()">+ Add Item</button>
-      <hr class="divider">
-      <h3>Panel Notes</h3>
-      <textarea id="prep-notes" rows="8" placeholder="Enter any panel preparation notes here..." style="width:100%;" oninput="onPrepNotesChange()"></textarea>
+      <div id="prep-no-agenda" class="banner banner-orange" style="display:none;">
+        Generate the agenda on the Output tab first.
+      </div>
+      <div id="prep-main" style="display:none;">
+        <div id="prep-summary" class="banner banner-teal" style="margin-bottom:16px;"></div>
+        <div id="prep-table-wrap" style="overflow-x:auto;"></div>
+      </div>
     </div>
 
   </div><!-- /content -->
@@ -492,8 +493,7 @@ let state = {
   availability: {},
   projectPreferences: {},
   agenda: [],
-  prepNotes: '',
-  prepChecklist: []
+  prepCheckboxes: {}
 };
 
 let dirHandle = null;
@@ -1962,54 +1962,101 @@ async function exportWord() {
 // ============================================================
 // PREPARATION TAB
 // ============================================================
+const PREP_COLS = [
+  { key: 'coi',        label: 'COI supplied by team' },
+  { key: 'panellists', label: 'Panellists confirmed' },
+  { key: 'assessment', label: 'Assessment supplied by team' },
+  { key: 'slides',     label: 'Slides supplied by team' },
+  { key: 'pack',       label: 'Pack sent to panellists' }
+];
+
 function renderPrepTab() {
-  document.getElementById('prep-notes').value = state.prepNotes || '';
-  renderPrepChecklist();
-}
+  const scheduledSlots = (state.agenda || []).filter(s => s.type === 'slot' && s.project);
+  const hasAgenda = scheduledSlots.length > 0;
 
-function renderPrepChecklist() {
-  const wrap = document.getElementById('prep-checklist-wrap');
-  wrap.innerHTML = '';
-  if (!state.prepChecklist.length) {
-    wrap.innerHTML = '<p class="text-muted mb8">No items yet. Click "+ Add Item" to create one.</p>';
-    return;
-  }
-  state.prepChecklist.forEach((item, i) => {
-    const div = document.createElement('div');
-    div.className = 'checklist-item' + (item.done ? ' done' : '');
-    div.innerHTML = `
-      <input type="checkbox" ${item.done ? 'checked' : ''} onchange="onPrepCheckChange(${i}, this.checked)" style="accent-color:#5CB85C;">
-      <span style="flex:1;">${escHtml(item.text)}</span>
-      <button class="btn btn-danger btn-xs" onclick="deletePrepItem(${i})">🗑</button>
-    `;
-    wrap.appendChild(div);
+  document.getElementById('prep-no-agenda').style.display = hasAgenda ? 'none' : '';
+  document.getElementById('prep-main').style.display = hasAgenda ? '' : 'none';
+  if (!hasAgenda) return;
+
+  // Deduplicate, preserving agenda order
+  const seen = new Set();
+  const projects = [];
+  scheduledSlots.forEach(s => {
+    if (!seen.has(s.project)) { seen.add(s.project); projects.push(s.project); }
   });
+
+  if (!state.prepCheckboxes) state.prepCheckboxes = {};
+
+  // Summary
+  const fullyPrepared = projects.filter(name =>
+    PREP_COLS.every(col => !!state.prepCheckboxes[name + '_' + col.key])
+  ).length;
+  document.getElementById('prep-summary').textContent =
+    fullyPrepared + ' / ' + projects.length + ' projects fully prepared';
+
+  // Build table
+  const table = document.createElement('table');
+  table.style.minWidth = '700px';
+
+  const thead = document.createElement('thead');
+  const hr = document.createElement('tr');
+  const nameTh = document.createElement('th');
+  nameTh.textContent = 'Project';
+  hr.appendChild(nameTh);
+  PREP_COLS.forEach(col => {
+    const th = document.createElement('th');
+    th.style.cssText = 'text-align:center;font-size:0.78rem;width:110px;line-height:1.3;';
+    th.textContent = col.label;
+    hr.appendChild(th);
+  });
+  thead.appendChild(hr);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  projects.forEach(name => {
+    const tr = document.createElement('tr');
+    const nameTd = document.createElement('td');
+    nameTd.style.fontWeight = '600';
+    nameTd.textContent = name;
+    tr.appendChild(nameTd);
+
+    PREP_COLS.forEach(col => {
+      const td = document.createElement('td');
+      td.style.textAlign = 'center';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !!state.prepCheckboxes[name + '_' + col.key];
+      cb.style.cssText = 'width:18px;height:18px;cursor:pointer;accent-color:#5CB85C;';
+      cb.title = col.label;
+      cb.onchange = () => onPrepCheck(name, col.key, cb.checked);
+      td.appendChild(cb);
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+
+  const wrap = document.getElementById('prep-table-wrap');
+  wrap.innerHTML = '';
+  wrap.appendChild(table);
 }
 
-function addPrepItem() {
-  const text = prompt('Enter preparation task:');
-  if (!text || !text.trim()) return;
-  state.prepChecklist.push({ text: text.trim(), done: false });
-  renderPrepChecklist();
+function onPrepCheck(projName, colKey, checked) {
+  if (!state.prepCheckboxes) state.prepCheckboxes = {};
+  state.prepCheckboxes[projName + '_' + colKey] = checked;
+  log('Preparation: ' + projName + ' — ' + colKey + ' = ' + checked);
   scheduleSave();
-  log(`Prep task added: ${text.trim()}`);
-}
-
-function deletePrepItem(i) {
-  state.prepChecklist.splice(i, 1);
-  renderPrepChecklist();
-  scheduleSave();
-}
-
-function onPrepCheckChange(i, checked) {
-  state.prepChecklist[i].done = checked;
-  renderPrepChecklist();
-  scheduleSave();
-}
-
-function onPrepNotesChange() {
-  state.prepNotes = document.getElementById('prep-notes').value;
-  scheduleSave();
+  // Update summary without full re-render
+  const projects = [];
+  const seen = new Set();
+  (state.agenda || []).filter(s => s.type === 'slot' && s.project).forEach(s => {
+    if (!seen.has(s.project)) { seen.add(s.project); projects.push(s.project); }
+  });
+  const fullyPrepared = projects.filter(name =>
+    PREP_COLS.every(col => !!state.prepCheckboxes[name + '_' + col.key])
+  ).length;
+  document.getElementById('prep-summary').textContent =
+    fullyPrepared + ' / ' + projects.length + ' projects fully prepared';
 }
 
 // ============================================================
@@ -2031,8 +2078,7 @@ function newPanelConfirm() {
         availability: {},
         projectPreferences: {},
         agenda: [],
-        prepNotes: '',
-        prepChecklist: []
+        prepCheckboxes: {}
       };
       renderAll();
       scheduleSave();
