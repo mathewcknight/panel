@@ -322,7 +322,7 @@ function runAnalysis() {
     const n = data.length;
     banner.textContent = `✓ Analysis complete — ${n} team member / role combination${n !== 1 ? 's' : ''}.`;
     banner.className   = 'banner ready';
-    document.getElementById('chartSection').style.display = '';
+    document.getElementById('chartSection').style.display = 'block';
     document.getElementById('emptyState').style.display   = 'none';
   } catch (err) {
     console.error(err);
