@@ -138,10 +138,10 @@ input[type="file"] { display: none; }
   background: #0b1f36;
   border: 1px solid rgba(255,255,255,0.13);
   border-radius: 10px; padding: 14px 16px;
-  font-size: 12px; min-width: 230px;
+  font-size: 12px; min-width: 230px; max-width: 280px;
   pointer-events: none;
   box-shadow: 0 12px 40px rgba(0,0,0,0.6);
-  display: none;
+  display: none; max-height: 75vh; overflow-y: auto;
 }
 .tt.show { display: block; }
 .tt-name { font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 2px; }
@@ -158,6 +158,46 @@ input[type="file"] { display: none; }
 .empty { padding: 64px 24px; text-align: center; color: var(--muted); }
 .empty-icon { font-size: 40px; margin-bottom: 16px; opacity: 0.6; }
 .empty p { font-size: 14px; line-height: 1.7; }
+
+/* ── Additions ──────────────────────────────── */
+
+.sec-sep { height: 1px; background: var(--border); margin: 36px 0 30px; }
+
+/* Sort buttons */
+.sort-btns-wrap { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+.sort-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  padding: 4px 12px;
+  font-size: 11px; font-weight: 600;
+  cursor: pointer; font-family: inherit;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.sort-btn:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+.sort-btn[data-field="total"].active {
+  background: rgba(255,255,255,0.10); border-color: rgba(255,255,255,0.28); color: #fff;
+}
+.sort-btn[data-field="s1"].active { background: var(--s1); border-color: var(--s1); color: #fff; }
+.sort-btn[data-field="s2"].active { background: var(--s2); border-color: var(--s2); color: #fff; }
+.sort-btn[data-field="s3"].active { background: var(--s3); border-color: var(--s3); color: #fff; }
+
+/* Project code sublabel */
+.sublabel {
+  font-size: 10px; color: var(--muted); margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Tooltip: project meta lines and project name list */
+.tt-meta { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+.tt-projects { margin-top: 7px; }
+.tt-proj-item {
+  font-size: 10px; color: var(--muted);
+  padding: 1px 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 240px;
+}
 </style>
 </head>
 <body>
@@ -199,6 +239,7 @@ input[type="file"] { display: none; }
 
 <div id="chartSection">
   <div class="chart-wrap">
+
     <div class="legend">
       <div class="legend-item">
         <div class="l-swatch" style="background:var(--s1)"></div>Stage 1: EOI → FA Panel
@@ -210,8 +251,25 @@ input[type="file"] { display: none; }
         <div class="l-swatch" style="background:var(--s3)"></div>Stage 3: Approved → Monitoring
       </div>
     </div>
+
     <div class="sec-label">Team Member × Role</div>
+    <div class="sort-btns-wrap" id="sortPerson"></div>
     <div id="chartRows"></div>
+
+    <div class="sec-sep"></div>
+    <div class="sec-label">By Funding Round</div>
+    <div class="sort-btns-wrap" id="sortRound"></div>
+    <div id="roundRows"></div>
+
+    <div class="sec-sep"></div>
+    <div class="sec-label">By Impact Team</div>
+    <div class="sort-btns-wrap" id="sortTeam"></div>
+    <div id="teamRows"></div>
+
+    <div class="sec-sep"></div>
+    <div class="sec-label">By Project</div>
+    <div id="projectRows"></div>
+
   </div>
 </div>
 
@@ -273,9 +331,10 @@ function onFile(type, input) {
 
 /* ── Helpers ───────────────────────────────── */
 
-function norm(s)    { return String(s ?? '').trim().toLowerCase(); }
-function esc(s)     { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function round1(x)  { return Math.round(x * 10) / 10; }
+function norm(s)       { return String(s ?? '').trim().toLowerCase(); }
+function esc(s)        { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function round1(x)     { return Math.round(x * 10) / 10; }
+function truncate(s,n) { s = String(s ?? ''); return s.length > n ? s.slice(0,n) + '…' : s; }
 
 function getVal(row, col) {
   const t = norm(col);
@@ -289,7 +348,6 @@ function parseDate(v) {
   if (v == null || v === '') return null;
   if (v instanceof Date) return isNaN(v.getTime()) ? null : v;
   if (typeof v === 'number') {
-    // Excel serial → JS date (UTC-safe: use midnight UTC)
     const d = new Date(Math.round((v - 25569) * 86400000));
     return isNaN(d.getTime()) ? null : d;
   }
@@ -317,10 +375,15 @@ function runAnalysis() {
   banner.textContent = 'Processing…';
   banner.className   = 'banner';
   try {
-    const data = buildData(state.appRows, state.projRows);
-    renderChart(data);
-    const n = data.length;
-    banner.textContent = `✓ Analysis complete — ${n} team member / role combination${n !== 1 ? 's' : ''}.`;
+    const { byPerson, byRound, byTeam, byProject } = buildData(state.appRows, state.projRows);
+
+    mountChart(byPerson, 'sortPerson', 'chartRows', { showBadge: true });
+    mountChart(byRound,  'sortRound',  'roundRows', { minCount: 3 });
+    mountChart(byTeam,   'sortTeam',   'teamRows',  { minCount: 3 });
+    renderRows(byProject, 'projectRows', byProject[0]?.total ?? 0, { showSublabel: true });
+
+    const n = byPerson.length;
+    banner.textContent = `✓ Analysis complete — ${n} person/role combination${n !== 1 ? 's' : ''}, ${byProject.length} projects.`;
     banner.className   = 'banner ready';
     document.getElementById('chartSection').style.display = 'block';
     document.getElementById('emptyState').style.display   = 'none';
@@ -332,11 +395,13 @@ function runAnalysis() {
 }
 
 function buildData(appRows, projRows) {
+
   /* Step 1 — group application rows by project code */
-  const projects = {}; // code → { eoi: {panel, mon}, fa: {panel, appr, mon} }
+  const projects = {}; // code → { name, eoi, fa }
 
   for (const r of appRows) {
-    const code = String(getVal(r, 'Project Code') ?? '').trim();
+    const code  = String(getVal(r, 'Project Code') ?? '').trim();
+    const name  = String(getVal(r, 'Project Name') ?? '').trim();
     if (!code) continue;
 
     const rtype = norm(getVal(r, 'Record Type'));
@@ -344,7 +409,7 @@ function buildData(appRows, projRows) {
     const appr  = parseDate(getVal(r, 'Date Approved'));
     const mon   = parseDate(getVal(r, 'Monitoring Date'));
 
-    if (!projects[code]) projects[code] = { eoi: null, fa: null };
+    if (!projects[code]) projects[code] = { name, eoi: null, fa: null };
 
     if (rtype.includes('expression of interest')) {
       projects[code].eoi = { panel, mon };
@@ -353,8 +418,8 @@ function buildData(appRows, projRows) {
     }
   }
 
-  /* Step 2 — compute stage durations */
-  const stages = {}; // code → { s1, s2, s3 } (null = not applicable / data error)
+  /* Step 2 — compute stage durations (unchanged logic) */
+  const stages = {};
 
   for (const [code, p] of Object.entries(projects)) {
     const out = { s1: null, s2: null, s3: null };
@@ -367,7 +432,6 @@ function buildData(appRows, projRows) {
         out.s1 = v;
       }
     }
-    // No eoi → out.s1 stays null (project excluded from Stage 1 averages, per spec)
 
     if (p.fa) {
       if (p.fa.panel && p.fa.appr) {
@@ -378,8 +442,7 @@ function buildData(appRows, projRows) {
           out.s2 = v;
         }
       }
-
-      const monDate = (p.fa.mon) || (p.eoi && p.eoi.mon) || null;
+      const monDate = p.fa.mon || (p.eoi && p.eoi.mon) || null;
       if (p.fa.appr && monDate) {
         const v = daysBetween(p.fa.appr, monDate);
         if (v !== null && v < 0) {
@@ -393,82 +456,201 @@ function buildData(appRows, projRows) {
     stages[code] = out;
   }
 
-  /* Step 3 — aggregate by (person, role) */
-  const aggs = {}; // key → { name, roleLabel, roleColor, s1s[], s2s[], s3s[], count }
-
+  /* Step 3 — project metadata from projects sheet */
+  const projMeta = {}; // code → { name, impactTeam, fundingRound }
   for (const r of projRows) {
     const code = String(getVal(r, 'Project Code') ?? '').trim();
-    const st   = stages[code];
-    if (!code || !st) continue;
+    if (!code) continue;
+    const name = String(getVal(r, 'Project Name') ?? '').trim();
+    projMeta[code] = {
+      name:         name || projects[code]?.name || code,
+      impactTeam:   String(getVal(r, 'Impact Team')   ?? '').trim(),
+      fundingRound: String(getVal(r, 'Funding Round') ?? '').trim(),
+    };
+  }
 
+  /* Shared helpers */
+  function resolvedName(code) {
+    return projMeta[code]?.name || projects[code]?.name || code;
+  }
+
+  function pushStages(agg, code) {
+    const st = stages[code];
+    if (!st) return;
+    agg.count++;
+    agg.projectNames.push(resolvedName(code));
+    if (st.s1 !== null) agg.s1s.push(st.s1);
+    if (st.s2 !== null) agg.s2s.push(st.s2);
+    if (st.s3 !== null) agg.s3s.push(st.s3);
+  }
+
+  function finalise(aggs) {
+    return Object.values(aggs).map(a => {
+      const a1 = average(a.s1s) ?? 0;
+      const a2 = average(a.s2s) ?? 0;
+      const a3 = average(a.s3s) ?? 0;
+      return {
+        ...a,
+        avg1: round1(a1), avg2: round1(a2), avg3: round1(a3),
+        total: round1(a1 + a2 + a3),
+        hasS1: a.s1s.length > 0,
+        hasS2: a.s2s.length > 0,
+        hasS3: a.s3s.length > 0,
+      };
+    }).sort((a, b) => b.total - a.total);
+  }
+
+  /* Step 4 — aggregate by (person, role) */
+  const personAggs = {};
+  for (const r of projRows) {
+    const code = String(getVal(r, 'Project Code') ?? '').trim();
+    if (!code || !stages[code]) continue;
     for (const role of ROLES) {
       const name = String(getVal(r, role.col) ?? '').trim();
       if (!name) continue;
-
       const key = `${norm(name)}|||${role.col}`;
-      if (!aggs[key]) {
-        aggs[key] = {
+      if (!personAggs[key]) {
+        personAggs[key] = {
           name, roleLabel: role.label, roleColor: role.color,
-          s1s: [], s2s: [], s3s: [], count: 0,
+          s1s: [], s2s: [], s3s: [], count: 0, projectNames: [],
         };
       }
-      const a = aggs[key];
-      a.count++;
-      if (st.s1 !== null) a.s1s.push(st.s1);
-      if (st.s2 !== null) a.s2s.push(st.s2);
-      if (st.s3 !== null) a.s3s.push(st.s3);
+      pushStages(personAggs[key], code);
     }
   }
 
-  /* Step 4 — averages, sort descending by total */
-  return Object.values(aggs).map(a => {
-    const a1 = average(a.s1s) ?? 0;
-    const a2 = average(a.s2s) ?? 0;
-    const a3 = average(a.s3s) ?? 0;
-    return {
-      name: a.name, roleLabel: a.roleLabel, roleColor: a.roleColor,
-      avg1: round1(a1), avg2: round1(a2), avg3: round1(a3),
-      total: round1(a1 + a2 + a3),
-      count: a.count,
-      hasS1: a.s1s.length > 0,
-      hasS2: a.s2s.length > 0,
-      hasS3: a.s3s.length > 0,
-    };
-  }).sort((a, b) => b.total - a.total);
+  /* Step 5 — aggregate by funding round */
+  const roundAggs = {};
+  for (const [code, meta] of Object.entries(projMeta)) {
+    if (!stages[code]) continue;
+    const key = meta.fundingRound || '(Unknown)';
+    if (!roundAggs[key]) {
+      roundAggs[key] = { name: key, s1s: [], s2s: [], s3s: [], count: 0, projectNames: [] };
+    }
+    pushStages(roundAggs[key], code);
+  }
+
+  /* Step 6 — aggregate by impact team */
+  const teamAggs = {};
+  for (const [code, meta] of Object.entries(projMeta)) {
+    if (!stages[code]) continue;
+    const key = meta.impactTeam || '(Unknown)';
+    if (!teamAggs[key]) {
+      teamAggs[key] = { name: key, s1s: [], s2s: [], s3s: [], count: 0, projectNames: [] };
+    }
+    pushStages(teamAggs[key], code);
+  }
+
+  /* Step 7 — by project (one row per project) */
+  const byProject = Object.entries(projMeta)
+    .filter(([code]) => !!stages[code])
+    .map(([code, meta]) => {
+      const st = stages[code];
+      const a1 = st.s1 ?? 0, a2 = st.s2 ?? 0, a3 = st.s3 ?? 0;
+      return {
+        name: meta.name, code,
+        impactTeam: meta.impactTeam, fundingRound: meta.fundingRound,
+        avg1: a1, avg2: a2, avg3: a3,
+        total: round1(a1 + a2 + a3),
+        hasS1: st.s1 !== null, hasS2: st.s2 !== null, hasS3: st.s3 !== null,
+        count: 1,
+      };
+    })
+    .sort((a, b) => b.total - a.total);
+
+  return {
+    byPerson: finalise(personAggs),
+    byRound:  finalise(roundAggs),
+    byTeam:   finalise(teamAggs),
+    byProject,
+  };
 }
 
-/* ── Rendering ─────────────────────────────── */
+/* ── Sort-button chart mount ───────────────── */
 
-const ttEl = document.getElementById('tt');
+function getSortVal(row, field) {
+  if (field === 's1') return row.avg1;
+  if (field === 's2') return row.avg2;
+  if (field === 's3') return row.avg3;
+  return row.total;
+}
 
-function renderChart(data) {
-  const container = document.getElementById('chartRows');
+function mountChart(allData, sortId, rowsId, opts) {
+  const { minCount = 0, ...renderOpts } = opts;
+  const data = minCount > 0 ? allData.filter(r => r.count >= minCount) : allData;
+
+  const FIELDS = [
+    { field: 'total', label: 'Total'   },
+    { field: 's1',    label: 'Stage 1' },
+    { field: 's2',    label: 'Stage 2' },
+    { field: 's3',    label: 'Stage 3' },
+  ];
+
+  function doSort(field) {
+    return [...data].sort((a, b) => {
+      const va = getSortVal(a, field), vb = getSortVal(b, field);
+      if (va === 0 && vb > 0) return  1;
+      if (vb === 0 && va > 0) return -1;
+      return vb - va;
+    });
+  }
+
+  function render(field) {
+    const sorted = doSort(field);
+    renderRows(sorted, rowsId, sorted[0]?.total ?? 0, renderOpts);
+    document.querySelectorAll(`#${sortId} .sort-btn`).forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.field === field);
+    });
+  }
+
+  const sc = document.getElementById(sortId);
+  sc.innerHTML = '';
+  FIELDS.forEach(({ field, label }) => {
+    const btn = document.createElement('button');
+    btn.className   = 'sort-btn' + (field === 'total' ? ' active' : '');
+    btn.dataset.field = field;
+    btn.textContent   = label;
+    btn.addEventListener('click', () => render(field));
+    sc.appendChild(btn);
+  });
+
+  render('total');
+}
+
+/* ── Row rendering ─────────────────────────── */
+
+function renderRows(data, containerId, maxTotal, opts) {
+  const { showBadge = false, showSublabel = false } = opts || {};
+  const container = document.getElementById(containerId);
   container.innerHTML = '';
 
   if (!data.length) {
-    container.innerHTML = '<p style="color:var(--muted);font-size:13px;padding:12px 0">No data after joining — verify Project Code values match between sheets.</p>';
+    container.innerHTML = '<p style="color:var(--muted);font-size:13px;padding:12px 0">No data to display.</p>';
     return;
   }
-
-  const maxTotal = data[0].total;
 
   for (const row of data) {
     const el = document.createElement('div');
     el.className = 'chart-row';
 
-    /* Label column */
+    /* Label */
     const label = document.createElement('div');
     label.className = 'row-label';
-    label.innerHTML =
-      `<div class="person-name">${esc(row.name)}</div>` +
-      `<span class="role-badge" style="background:${row.roleColor}">${esc(row.roleLabel)}</span>` +
-      `<span class="pcount">×${row.count}</span>`;
+    let lh = `<div class="person-name">${esc(row.name)}</div>`;
+    if (showBadge && row.roleLabel) {
+      lh += `<span class="role-badge" style="background:${row.roleColor}">${esc(row.roleLabel)}</span>`;
+      lh += `<span class="pcount">×${row.count}</span>`;
+    } else if (showSublabel && row.code) {
+      lh += `<div class="sublabel">${esc(row.code)}</div>`;
+    } else {
+      lh += `<span class="pcount">×${row.count}</span>`;
+    }
+    label.innerHTML = lh;
     el.appendChild(label);
 
     /* Bar */
     const track = document.createElement('div');
     track.className = 'bar-track';
-
     const inner = document.createElement('div');
     inner.className = 'bar-inner';
     inner.style.width = maxTotal > 0 ? `${(row.total / maxTotal) * 100}%` : '0%';
@@ -482,7 +664,6 @@ function renderChart(data) {
       const d = document.createElement('div');
       d.className = 'seg';
       d.style.cssText = `background:${seg.color};width:${row.total > 0 ? (seg.val / row.total) * 100 : 0}%`;
-      // Show text only when segment is visually wide enough relative to the max bar
       if (maxTotal > 0 && (seg.val / maxTotal) >= 0.05) {
         const sp = document.createElement('span');
         sp.textContent = Math.round(seg.val) + 'd';
@@ -497,7 +678,7 @@ function renderChart(data) {
     track.addEventListener('mouseleave', () => ttEl.classList.remove('show'));
     el.appendChild(track);
 
-    /* Total label */
+    /* Total */
     const tot = document.createElement('div');
     tot.className = 'total-days';
     tot.textContent = Math.round(row.total) + 'd';
@@ -509,18 +690,49 @@ function renderChart(data) {
 
 /* ── Tooltip ───────────────────────────────── */
 
+const ttEl = document.getElementById('tt');
+
 function showTt(e, row) {
-  ttEl.innerHTML =
-    `<div class="tt-name">${esc(row.name)}</div>` +
-    `<div class="tt-role">${esc(row.roleLabel)}</div>` +
-    ttRow(S_COLORS[0], 'EOI → FA Panel',       row.hasS1 ? row.avg1 + 'd' : 'N/A (no EOI)') +
-    ttRow(S_COLORS[1], 'FA Panel → Approved',   row.hasS2 ? row.avg2 + 'd' : 'N/A') +
-    ttRow(S_COLORS[2], 'Approved → Monitoring', row.hasS3 ? row.avg3 + 'd' : 'N/A') +
-    `<hr class="tt-div">` +
-    `<div class="tt-row"><div class="tt-tot">Total Average</div><div class="tt-tot">${row.total}d</div></div>` +
-    `<div class="tt-cnt">${row.count} project${row.count !== 1 ? 's' : ''}</div>`;
+  let html;
+
+  if (row.code !== undefined) {
+    /* By-project tooltip */
+    html =
+      `<div class="tt-name">${esc(row.name)}</div>` +
+      `<div class="tt-role">${esc(row.code)}</div>` +
+      (row.impactTeam   ? `<div class="tt-meta">${esc(row.impactTeam)}</div>`   : '') +
+      (row.fundingRound ? `<div class="tt-meta">${esc(row.fundingRound)}</div>` : '') +
+      `<div style="margin-top:8px">` + ttStages(row) + `</div>` +
+      `<hr class="tt-div">` +
+      `<div class="tt-row"><div class="tt-tot">Total</div><div class="tt-tot">${row.total}d</div></div>`;
+  } else {
+    /* Person / group tooltip */
+    html =
+      `<div class="tt-name">${esc(row.name)}</div>` +
+      (row.roleLabel ? `<div class="tt-role">${esc(row.roleLabel)}</div>` : '') +
+      ttStages(row) +
+      `<hr class="tt-div">` +
+      `<div class="tt-row"><div class="tt-tot">Total Average</div><div class="tt-tot">${row.total}d</div></div>` +
+      `<div class="tt-cnt">${row.count} project${row.count !== 1 ? 's' : ''}</div>`;
+
+    if (row.projectNames && row.projectNames.length > 0) {
+      html += `<div class="tt-projects">` +
+        row.projectNames
+          .map(n => `<div class="tt-proj-item">– ${esc(truncate(n, 30))}</div>`)
+          .join('') +
+        `</div>`;
+    }
+  }
+
+  ttEl.innerHTML = html;
   ttEl.classList.add('show');
   moveTt(e);
+}
+
+function ttStages(row) {
+  return ttRow(S_COLORS[0], 'EOI → FA Panel',       row.hasS1 ? row.avg1 + 'd' : 'N/A (no EOI)') +
+         ttRow(S_COLORS[1], 'FA Panel → Approved',   row.hasS2 ? row.avg2 + 'd' : 'N/A') +
+         ttRow(S_COLORS[2], 'Approved → Monitoring', row.hasS3 ? row.avg3 + 'd' : 'N/A');
 }
 
 function ttRow(color, label, val) {
@@ -531,7 +743,9 @@ function ttRow(color, label, val) {
 }
 
 function moveTt(e) {
-  const gap = 14, w = 245, h = 220;
+  const gap = 14;
+  const w   = ttEl.offsetWidth  || 245;
+  const h   = ttEl.offsetHeight || 220;
   const x = e.clientX + gap + w > window.innerWidth  ? e.clientX - w - gap : e.clientX + gap;
   const y = e.clientY + gap + h > window.innerHeight ? e.clientY - h - gap : e.clientY + gap;
   ttEl.style.left = x + 'px';
