@@ -519,43 +519,52 @@ function buildData(appRows, projRows) {
     }
   }
 
-  /* Step 5 — aggregate by funding round */
+  /* Step 5 — aggregate by funding round
+     Outer loop is stages keys so every application-sheet project is included;
+     projMeta is joined for metadata with 'Unknown' fallback. */
   const roundAggs = {};
-  for (const [code, meta] of Object.entries(projMeta)) {
-    if (!stages[code]) continue;
-    const key = meta.fundingRound || '(Unknown)';
+  for (const code of Object.keys(stages)) {
+    const meta = projMeta[code];
+    const key  = meta?.fundingRound || 'Unknown';
     if (!roundAggs[key]) {
       roundAggs[key] = { name: key, s1s: [], s2s: [], s3s: [], count: 0, projectNames: [] };
     }
     pushStages(roundAggs[key], code);
   }
 
-  /* Step 6 — aggregate by impact team */
+  /* Step 6 — aggregate by impact team (same join direction as Step 5) */
   const teamAggs = {};
-  for (const [code, meta] of Object.entries(projMeta)) {
-    if (!stages[code]) continue;
-    const key = meta.impactTeam || '(Unknown)';
+  for (const code of Object.keys(stages)) {
+    const meta = projMeta[code];
+    const key  = meta?.impactTeam || 'Unknown';
     if (!teamAggs[key]) {
       teamAggs[key] = { name: key, s1s: [], s2s: [], s3s: [], count: 0, projectNames: [] };
     }
     pushStages(teamAggs[key], code);
   }
 
-  /* Step 7 — by project (one row per project) */
-  const byProject = Object.entries(projMeta)
-    .filter(([code]) => !!stages[code])
-    .map(([code, meta]) => {
-      const st = stages[code];
+  /* Step 7 — by project
+     Outer loop over stages keys (application-sheet authoritative list).
+     projMeta joined for display metadata; falls back to projects[] name then code.
+     Rows where every stage is null (no computable dates) are omitted. */
+  const byProject = Object.keys(stages)
+    .map(code => {
+      const st   = stages[code];
+      if (st.s1 === null && st.s2 === null && st.s3 === null) return null;
+      const meta = projMeta[code];
+      const name = meta?.name || projects[code]?.name || code;
       const a1 = st.s1 ?? 0, a2 = st.s2 ?? 0, a3 = st.s3 ?? 0;
       return {
-        name: meta.name, code,
-        impactTeam: meta.impactTeam, fundingRound: meta.fundingRound,
+        name, code,
+        impactTeam:   meta?.impactTeam   || 'Unknown',
+        fundingRound: meta?.fundingRound || 'Unknown',
         avg1: a1, avg2: a2, avg3: a3,
         total: round1(a1 + a2 + a3),
         hasS1: st.s1 !== null, hasS2: st.s2 !== null, hasS3: st.s3 !== null,
         count: 1,
       };
     })
+    .filter(Boolean)
     .sort((a, b) => b.total - a.total);
 
   return {
